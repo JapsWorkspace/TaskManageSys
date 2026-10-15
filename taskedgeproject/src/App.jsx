@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 import { useLocation, useNavigate } from 'react-router-dom'
+import {
+  Archive,
+  Bell,
+  CalendarDays,
+  ClipboardCheck,
+  Folder,
+  History,
+  House,
+  List,
+  ShieldCheck,
+  Users,
+} from 'lucide-react'
 import './App.css'
 import loginBg from './assets/Loginbg.png'
 import loginBgTwo from './assets/Loginbg2.png'
@@ -46,6 +58,7 @@ import {
 } from './teamLogic.js'
 import { getNotificationMetrics } from './notificationLogic.js'
 import { didCountIncrease } from './navBadgeLogic.js'
+import { getSidebarIconName } from './sidebarNavigation.js'
 import { getUserDisplayName } from './userDisplayLogic.js'
 import {
   PRIORITIES,
@@ -119,10 +132,23 @@ const emptyTask = {
 }
 
 const baseFocusTabs = [
-  { id: 'my-day', label: 'My day', icon: 'target' },
-  { id: 'next-7-days', label: 'Calendar', icon: 'calendar' },
-  { id: 'all-my-tasks', label: 'My tasks', icon: 'list' },
+  { id: 'my-day', label: 'My day' },
+  { id: 'next-7-days', label: 'Calendar' },
+  { id: 'all-my-tasks', label: 'My tasks' },
 ]
+
+const sidebarIconComponents = {
+  Archive,
+  Bell,
+  CalendarDays,
+  ClipboardCheck,
+  Folder,
+  History,
+  House,
+  List,
+  ShieldCheck,
+  Users,
+}
 
 const baseWorkspaceTabs = [
   { id: 'project-board', label: 'Project board', count: '' },
@@ -2317,7 +2343,6 @@ function App() {
 
           <SidebarSection
             title="Workspace"
-            icon="team"
             items={visibleWorkspaceTabs}
             activeNav={activeNav}
             onSelect={handleSidebarSelect}
@@ -2702,7 +2727,7 @@ function SidebarTab({ item, activeNav, onSelect, isEditing = false, onRemove = n
         className="nav-link"
         onClick={() => onSelect(item.id)}
       >
-        {item.icon && <span className={`nav-icon ${item.icon}`} aria-hidden="true" />}
+        <SidebarNavIcon itemId={item.id} />
         <span>{item.label}</span>
         {item.count && <small className={countIncreased ? 'count-bump' : ''}>{item.count}</small>}
       </button>
@@ -2720,9 +2745,15 @@ function SidebarTab({ item, activeNav, onSelect, isEditing = false, onRemove = n
   )
 }
 
+function SidebarNavIcon({ itemId }) {
+  const iconName = getSidebarIconName(itemId)
+  const Icon = sidebarIconComponents[iconName]
+
+  return Icon ? <Icon className="nav-icon" size={18} strokeWidth={1.7} aria-hidden="true" /> : null
+}
+
 function SidebarSection({
   title,
-  icon,
   items,
   activeNav,
   onSelect,
@@ -2730,10 +2761,7 @@ function SidebarSection({
   return (
     <div className="nav-group">
       <div className="nav-group-title">
-        <span>
-          {title}
-          <i className={`section-icon ${icon}`} aria-hidden="true" />
-        </span>
+        <span>{title}</span>
       </div>
 
       {items.map((item) => (

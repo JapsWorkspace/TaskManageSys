@@ -1100,48 +1100,17 @@ textarea:focus {
   }
 }
 
-.nav-icon,
-.section-icon {
-  width: 20px;
-  height: 20px;
-  display: inline-grid;
-  place-items: center;
-  position: relative;
+.nav-icon {
+  width: 18px;
+  height: 18px;
+  color: currentColor;
   transform: translateY(-1px);
+  transition: transform 180ms ease;
 }
 
-.nav-icon::before,
-.section-icon::before {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  font-size: 1rem;
-  line-height: 1;
-}
-
-.nav-icon.target::before {
-  content: '◎';
-}
-
-.nav-icon.calendar::before {
-  content: '▣';
-}
-
-.nav-icon.list::before {
-  content: '▤';
-}
-
-.section-icon.lock::before {
-  content: '⌂';
-  color: var(--text-muted);
-  font-size: 0.95rem;
-}
-
-.section-icon.team::before {
-  content: '♧';
-  color: var(--text-muted);
-  font-size: 0.98rem;
+.nav-link:hover .nav-icon,
+.nav-row.active .nav-icon {
+  transform: translate(1px, -1px);
 }
 
 .nav-delete {
