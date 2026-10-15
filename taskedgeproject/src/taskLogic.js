@@ -604,6 +604,10 @@ export function getCalendarDays(tasks, { now = new Date(), days = 7 } = {}) {
   })
 }
 
+export function getCalendarViewAnchor(mode, { selectedDate, today = new Date() } = {}) {
+  return mode === 'week' ? today : selectedDate
+}
+
 export function getCalendarMonthDays(tasks, { selectedDate = new Date(), now = new Date() } = {}) {
   const selected = new Date(selectedDate)
   const safeSelected = Number.isNaN(selected.getTime()) ? new Date() : selected

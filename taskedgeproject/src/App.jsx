@@ -6,6 +6,8 @@ import {
   ArrowLeft,
   Bell,
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
   ClipboardCheck,
   Folder,
   History,
@@ -74,6 +76,7 @@ import {
   buildTaskPayload,
   getAgendaTasks,
   getCalendarDays,
+  getCalendarViewAnchor,
   getCalendarMonthDays,
   getMyDayMetrics,
   getRecentTasks,
@@ -2976,10 +2979,16 @@ function CalendarPage({
   const [isCalendarSwitching, setIsCalendarSwitching] = useState(false)
   const selected = new Date(selectedDate)
   const visibleDate = Number.isNaN(selected.getTime()) ? new Date() : selected
-  const monthDays = getCalendarMonthDays(tasks, { selectedDate: visibleDate })
-  const weekDays = getCalendarDays(tasks, { now: visibleDate })
+  const today = new Date()
+  const monthDays = getCalendarMonthDays(tasks, { selectedDate: visibleDate, now: today })
+  const weekDays = getCalendarDays(tasks, {
+    now: getCalendarViewAnchor('week', { selectedDate: visibleDate, today }),
+  })
   const days = calendarMode === 'month' ? monthDays : weekDays
   const monthLabel = new Intl.DateTimeFormat('en', { month: 'long', year: 'numeric' }).format(visibleDate)
+  const weekRangeLabel = weekDays.length
+    ? `${new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(weekDays[0].date)} - ${new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(weekDays.at(-1).date)}`
+    : ''
 
   function shiftMonth(amount) {
     const nextDate = new Date(visibleDate.getFullYear(), visibleDate.getMonth() + amount, 1)
@@ -2987,157 +2996,164 @@ function CalendarPage({
   }
 
   function toggleCalendarMode() {
-    if (isCalendarSwitching) {
-      return
-    }
-
+    if (isCalendarSwitching) return
     setIsCalendarSwitching(true)
     setCalendarMode((currentMode) => (currentMode === 'month' ? 'week' : 'month'))
   }
 
   useEffect(() => {
-    if (!isCalendarSwitching) {
-      return undefined
-    }
-
+    if (!isCalendarSwitching) return undefined
     const timeout = window.setTimeout(() => setIsCalendarSwitching(false), 360)
     return () => window.clearTimeout(timeout)
   }, [isCalendarSwitching])
 
+  const calendarGrid = (
+    <div
+      key={calendarMode}
+      className={`calendar-grid ${calendarMode === 'month' ? 'month-calendar-grid' : 'week-calendar-grid'}`}
+      aria-label={calendarMode === 'month' ? `${monthLabel} deadline calendar` : 'Next 7 days calendar'}
+    >
+      {days.map((day, index) => {
+        if (day.isBlank) {
+          return (
+            <span
+              className="calendar-day calendar-day-blank"
+              key={day.key}
+              aria-hidden="true"
+              style={{ '--calendar-card-index': index }}
+            />
+          )
+        }
+
+        const isSelected = day.dateKey === selectedDate
+        const overdueCount = day.tasks.filter((task) => {
+          const dueTime = new Date(task.dueAt || task.dueDate).getTime()
+          return !['Completed', 'Done'].includes(task.status) && !Number.isNaN(dueTime) && dueTime < Date.now()
+        }).length
+
+        return (
+          <article
+            className={[
+              'calendar-day',
+              isSelected ? 'selected' : '',
+              day.isToday ? 'today' : '',
+              day.tasks.length ? '' : 'empty',
+            ].filter(Boolean).join(' ')}
+            key={day.dateKey}
+            role="button"
+            tabIndex={0}
+            style={{ '--calendar-card-index': index }}
+            onClick={() => onSelectDate(day.dateKey)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                onSelectDate(day.dateKey)
+              }
+            }}
+          >
+            <div className="calendar-day-button">
+              {calendarMode === 'week' && (
+                <span>{new Intl.DateTimeFormat('en', { weekday: 'short' }).format(day.date)}</span>
+              )}
+              <strong>
+                {calendarMode === 'month'
+                  ? day.dayNumber
+                  : new Intl.DateTimeFormat('en', { day: 'numeric' }).format(day.date)}
+              </strong>
+              <small>
+                {calendarMode === 'month'
+                  ? day.tasks.length ? `${day.tasks.length} task${day.tasks.length === 1 ? '' : 's'}` : 'Available'
+                  : new Intl.DateTimeFormat('en', { month: 'short' }).format(day.date)}
+              </small>
+            </div>
+
+            <div className="calendar-task-stack">
+              {day.tasks.length ? (
+                day.tasks.map((task) => (
+                  <button
+                    type="button"
+                    className={`calendar-task-chip priority-${task.priority.toLowerCase()}`}
+                    key={`calendar-${day.dateKey}-${task.id}`}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onOpenTask(task)
+                    }}
+                  >
+                    <span className="calendar-task-chip-top">
+                      <b>{getTimeInputValue(task.dueAt || task.dueDate) || 'All day'}</b>
+                      <i>{task.priority}</i>
+                    </span>
+                    <strong>{task.title}</strong>
+                    <small>{task.owner || 'Unassigned'} · {task.status}</small>
+                  </button>
+                ))
+              ) : (
+                <p>{calendarMode === 'month' ? 'No deadlines' : 'No scheduled tasks'}</p>
+              )}
+            </div>
+
+            {overdueCount > 0 && <span className="calendar-alert">{overdueCount} overdue</span>}
+          </article>
+        )
+      })}
+    </div>
+  )
+
   return (
     <section className={`calendar-page calendar-${calendarMode}-view`}>
-      <div className="calendar-toolbar">
+      <header className="calendar-toolbar">
         <div className="calendar-title-row">
+          <span className="calendar-title-icon" aria-hidden="true"><CalendarDays size={21} /></span>
           <div>
             <p className="eyebrow">Deadline calendar</p>
-            <h3 className="section-title">{calendarMode === 'month' ? monthLabel : 'Next 7 days'}</h3>
+            <div className="calendar-heading-line">
+              <h3 className="section-title">{calendarMode === 'month' ? monthLabel : 'Next 7 days'}</h3>
+              {calendarMode === 'week' && <span>{weekRangeLabel}</span>}
+            </div>
           </div>
           <button
             type="button"
-            className="ghost-button compact"
+            className="calendar-mode-button"
             onClick={toggleCalendarMode}
             disabled={isCalendarSwitching}
           >
             {calendarMode === 'month' ? 'Show 7 days' : 'Show month'}
           </button>
         </div>
-        <div className="row-actions">
+
+        <div className="calendar-toolbar-actions">
           {calendarMode === 'month' && (
-            <button type="button" className="ghost-button compact" onClick={() => shiftMonth(-1)}>
-              Previous
+            <button type="button" aria-label="Previous month" onClick={() => shiftMonth(-1)}>
+              <ChevronLeft size={17} aria-hidden="true" />
+              <span>Previous</span>
             </button>
           )}
-          <button type="button" className="ghost-button compact" onClick={() => onSelectDate(getLocalDateKey(new Date()))}>
+          <button type="button" onClick={() => onSelectDate(getLocalDateKey(new Date()))}>
             Today
           </button>
           {calendarMode === 'month' && (
-            <button type="button" className="ghost-button compact" onClick={() => shiftMonth(1)}>
-              Next
+            <button type="button" aria-label="Next month" onClick={() => shiftMonth(1)}>
+              <span>Next</span>
+              <ChevronRight size={17} aria-hidden="true" />
             </button>
           )}
           {onCreateTask && (
-            <button type="button" className="primary-button compact" onClick={onCreateTask}>
+            <button type="button" className="calendar-add-task" onClick={onCreateTask}>
+              <Plus size={17} aria-hidden="true" />
               Add task
             </button>
           )}
         </div>
-      </div>
+      </header>
 
-      {calendarMode === 'month' && (
-        <div className="calendar-weekdays" aria-hidden="true">
-          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-            <span key={day}>{day}</span>
-          ))}
+      {calendarMode === 'month' ? (
+        <div className="calendar-month-shell">
+          <div className="calendar-weekdays" aria-hidden="true">
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span key={day}>{day}</span>)}
+          </div>
+          {calendarGrid}
         </div>
-      )}
-
-      <div
-        key={calendarMode}
-        className={`calendar-grid ${calendarMode === 'month' ? 'month-calendar-grid' : 'week-calendar-grid'}`}
-        aria-label={calendarMode === 'month' ? `${monthLabel} deadline calendar` : 'Next 7 days calendar'}
-      >
-        {days.map((day, index) => {
-          if (day.isBlank) {
-            return (
-              <span
-                className="calendar-day calendar-day-blank"
-                key={day.key}
-                aria-hidden="true"
-                style={{ '--calendar-card-index': index }}
-              />
-            )
-          }
-
-          const isSelected = day.dateKey === selectedDate
-          const overdueCount = day.tasks.filter((task) => {
-            const dueTime = new Date(task.dueAt || task.dueDate).getTime()
-            return !['Completed', 'Done'].includes(task.status) && !Number.isNaN(dueTime) && dueTime < Date.now()
-          }).length
-
-          return (
-            <article
-              className={[
-                'calendar-day',
-                isSelected ? 'selected' : '',
-                day.isToday ? 'today' : '',
-                day.tasks.length ? '' : 'empty',
-              ].filter(Boolean).join(' ')}
-              key={day.dateKey}
-              role="button"
-              tabIndex={0}
-              style={{ '--calendar-card-index': index }}
-              onClick={() => onSelectDate(day.dateKey)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault()
-                  onSelectDate(day.dateKey)
-                }
-              }}
-            >
-              <div className="calendar-day-button">
-                {calendarMode === 'week' && (
-                  <span>{new Intl.DateTimeFormat('en', { weekday: 'short' }).format(day.date)}</span>
-                )}
-                <strong>
-                  {calendarMode === 'month'
-                    ? day.dayNumber
-                    : new Intl.DateTimeFormat('en', { day: 'numeric' }).format(day.date)}
-                </strong>
-                <small>
-                  {calendarMode === 'month'
-                    ? day.tasks.length ? `${day.tasks.length} task${day.tasks.length === 1 ? '' : 's'}` : 'No tasks'
-                    : new Intl.DateTimeFormat('en', { month: 'short' }).format(day.date)}
-                </small>
-              </div>
-
-              <div className="calendar-task-stack">
-                {day.tasks.length ? (
-                  day.tasks.map((task) => (
-                    <button
-                      type="button"
-                      className={`calendar-task-chip priority-${task.priority.toLowerCase()}`}
-                      key={`calendar-${day.dateKey}-${task.id}`}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        onOpenTask(task)
-                      }}
-                    >
-                      <span>{getTimeInputValue(task.dueAt || task.dueDate) || 'All day'}</span>
-                      <strong>{task.title}</strong>
-                    </button>
-                  ))
-                ) : (
-                  <p>No scheduled tasks</p>
-                )}
-              </div>
-
-              {overdueCount > 0 && (
-                <span className="calendar-alert">{overdueCount} overdue</span>
-              )}
-            </article>
-          )
-        })}
-      </div>
+      ) : calendarGrid}
     </section>
   )
 }

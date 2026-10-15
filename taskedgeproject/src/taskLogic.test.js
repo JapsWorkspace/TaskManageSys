@@ -7,6 +7,7 @@ import {
   getRecurrenceSummary,
   getAgendaTasks,
   getCalendarDays,
+  getCalendarViewAnchor,
   getCalendarMonthDays,
   getMyDayMetrics,
   getRecentTasks,
@@ -682,6 +683,14 @@ test('getCalendarDays builds the next seven dated task buckets', () => {
       ['2026-10-18', false, ['next-week']],
     ],
   )
+})
+
+test('getCalendarViewAnchor keeps month selection separate from the upcoming seven-day anchor', () => {
+  const selectedDate = new Date('2026-10-21T12:00:00')
+  const today = new Date('2026-10-16T09:00:00')
+
+  assert.equal(getCalendarViewAnchor('month', { selectedDate, today }), selectedDate)
+  assert.equal(getCalendarViewAnchor('week', { selectedDate, today }), today)
 })
 
 test('getCalendarMonthDays builds a month grid with leading blanks and task counts', () => {
