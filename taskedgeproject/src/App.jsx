@@ -3,14 +3,20 @@ import { io } from 'socket.io-client'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   Archive,
+  ArrowLeft,
   Bell,
   CalendarDays,
   ClipboardCheck,
   Folder,
   History,
   House,
+  LayoutGrid,
   List,
+  Pencil,
+  Plus,
+  Search,
   ShieldCheck,
+  SlidersHorizontal,
   Users,
 } from 'lucide-react'
 import './App.css'
@@ -32,8 +38,10 @@ import {
   PROJECT_STATUSES,
   buildProjectPayload,
   getEligibleProjectPeople,
+  getFilteredProjectTasks,
   getProjectProgress,
   getProjectStatusBuckets,
+  getTaskCreationProject,
 } from './projectLogic.js'
 import {
   buildActivityPayload,
@@ -774,13 +782,13 @@ function App() {
     setAuthTransition('')
   }
 
-  function openNewTaskForm() {
+  function openNewTaskForm(preferredProjectId = '') {
     if (!canCreateTask) {
       setTaskMessage('Only managers and administrators can create tasks.')
       return
     }
 
-    const defaultProject = projects[0]
+    const defaultProject = getTaskCreationProject(projects, preferredProjectId)
     setTaskForm({
       mode: 'create',
       values: {
@@ -2489,6 +2497,7 @@ function App() {
                     setSelectedTaskId(task.id)
                   }}
                   onStatusChange={canManageOwnedRecord(user, selectedProject) ? updateTaskStatus : null}
+                  onCreateTask={() => openNewTaskForm(selectedProject.id)}
                   onEditProject={openEditProjectForm}
                   onArchiveProject={archiveProject}
                   canManage={canManageOwnedRecord(user, selectedProject)}
@@ -4776,119 +4785,221 @@ function ProjectDetailsPage({
   onBack,
   onOpenTask,
   onStatusChange,
+  onCreateTask,
   onEditProject,
   onArchiveProject,
 }) {
+  const [boardView, setBoardView] = useState('board')
+  const [taskSearch, setTaskSearch] = useState('')
+  const [memberFilter, setMemberFilter] = useState('all')
+  const [priorityFilter, setPriorityFilter] = useState('all')
   const progress = getProjectProgress(project.id, tasks)
-  const statusBuckets = getProjectStatusBuckets(tasks)
+  const projectPeople = [
+    { id: project.managerId, name: project.managerName },
+    ...(project.members || []),
+  ].filter((person, index, people) => person.id && people.findIndex((item) => item.id === person.id) === index)
+  const visibleTasks = getFilteredProjectTasks(tasks, {
+    search: taskSearch,
+    memberId: memberFilter,
+    priority: priorityFilter,
+  })
+  const statusBuckets = getProjectStatusBuckets(visibleTasks)
+
+  function getPersonInitials(name) {
+    return String(name || 'Unassigned')
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => part[0])
+      .join('')
+      .toUpperCase()
+  }
+
+  function renderTaskCard(task, index) {
+    const taskCode = task.id ? `TASK-${String(task.id).slice(-4).toUpperCase()}` : `TASK-${index + 1}`
+
+    return (
+      <article className="project-board-task" key={`project-task-${task.id}`}>
+        <button type="button" className="project-task-open" onClick={() => onOpenTask(task)}>
+          <span className="project-task-code">{taskCode}</span>
+          <h4>{task.title}</h4>
+          <p>{task.description || 'No task description yet.'}</p>
+        </button>
+
+        <div className="project-task-labels">
+          <PriorityBadge value={task.priority} />
+          {(task.tags || []).slice(0, 2).map((tag) => <span key={tag}>{tag}</span>)}
+          {!task.tags?.length && task.category && <span>{task.category}</span>}
+        </div>
+
+        <div className="project-task-assignment">
+          <span className="project-member-avatar" aria-hidden="true">{getPersonInitials(task.owner)}</span>
+          <span>
+            <small>Assigned to</small>
+            <strong>{task.owner || 'Unassigned'}</strong>
+          </span>
+          <time dateTime={task.dueDate || undefined}>{formatDate(task.dueDate)}</time>
+        </div>
+
+        <div className="project-task-footer">
+          <span>{Math.max(0, Math.min(100, Number(task.progress) || 0))}% complete</span>
+          {onStatusChange ? (
+            <select
+              aria-label={`Status for ${task.title}`}
+              value={task.status}
+              onChange={(event) => onStatusChange(task, event.target.value)}
+            >
+              {STATUSES.map((nextStatus) => <option key={nextStatus}>{nextStatus}</option>)}
+            </select>
+          ) : (
+            <StatusBadge value={task.status} />
+          )}
+        </div>
+      </article>
+    )
+  }
 
   return (
     <section className="project-detail-page">
-      <div className="task-detail-header panel">
-        <button type="button" className="ghost-button compact" onClick={onBack}>
+      <div className="project-detail-toolbar">
+        <button type="button" className="project-back-button" onClick={onBack}>
+          <ArrowLeft size={17} aria-hidden="true" />
           Back to projects
         </button>
-        <div>
-          <p className="eyebrow">Project</p>
-          <h3>{project.name}</h3>
-          <p>{project.description || 'No description yet.'}</p>
-        </div>
         {canManage && (
-          <div className="task-detail-actions">
-            <button type="button" className="ghost-button compact" onClick={() => onEditProject(project)}>
-              Edit
+          <div className="project-detail-primary-actions">
+            <button type="button" className="project-action-button" onClick={() => onEditProject(project)}>
+              <Pencil size={16} aria-hidden="true" />
+              Edit project
             </button>
-            <button type="button" className="ghost-button compact" onClick={() => onArchiveProject(project.id)}>
+            <button type="button" className="project-action-button" onClick={() => onArchiveProject(project.id)}>
+              <Archive size={16} aria-hidden="true" />
               Archive
+            </button>
+            <button type="button" className="project-new-task-button" onClick={onCreateTask}>
+              <Plus size={17} aria-hidden="true" />
+              New task
             </button>
           </div>
         )}
       </div>
 
+      <article className="project-summary-card">
+        <div className="project-summary-main">
+          <div className="project-summary-icon" aria-hidden="true"><Folder size={24} /></div>
+          <div className="project-summary-copy">
+            <p className="eyebrow">{project.status} project</p>
+            <h2>{project.name}</h2>
+            <p>{project.description || 'No description yet.'}</p>
+            <div className="project-summary-meta">
+              <span><small>Manager</small><strong>{project.managerName}</strong></span>
+              <span><small>Status</small><strong>{project.status}</strong></span>
+              <span><small>Priority</small><strong>{project.priority}</strong></span>
+            </div>
+          </div>
+        </div>
+
+        <div className="project-summary-progress">
+          <div
+            className="project-progress-ring"
+            style={{ '--project-progress': `${progress.percent * 3.6}deg` }}
+            aria-label={`${progress.percent}% complete`}
+          >
+            <strong>{progress.percent}%</strong>
+          </div>
+          <span>
+            <small>Overall progress</small>
+            <strong>{progress.completed} of {progress.total} tasks complete</strong>
+          </span>
+        </div>
+
+        <div className="project-summary-team">
+          <div>
+            <small>Project team</small>
+            <strong>{projectPeople.length} {projectPeople.length === 1 ? 'member' : 'members'}</strong>
+          </div>
+          <div className="project-member-stack" aria-label={projectPeople.map((person) => person.name).join(', ') || 'No project members'}>
+            {projectPeople.slice(0, 5).map((person) => (
+              <span className="project-member-avatar" key={person.id} title={person.name}>
+                {getPersonInitials(person.name)}
+              </span>
+            ))}
+            {projectPeople.length > 5 && <span className="project-member-avatar more">+{projectPeople.length - 5}</span>}
+          </div>
+        </div>
+      </article>
+
       {taskMessage && <p className="form-message">{taskMessage}</p>}
 
-      <div className="project-overview-grid">
-        <article className="panel details-panel">
-          <p className="eyebrow">Overview</p>
-          <dl>
-            <div>
-              <dt>Status</dt>
-              <dd>{project.status}</dd>
-            </div>
-            <div>
-              <dt>Priority</dt>
-              <dd>{project.priority}</dd>
-            </div>
-            <div>
-              <dt>Manager</dt>
-              <dd>{project.managerName}</dd>
-            </div>
-            <div>
-              <dt>Members</dt>
-              <dd>{project.members.length ? project.members.map((member) => member.name).join(', ') : 'No members yet'}</dd>
-            </div>
-          </dl>
-        </article>
-        <article className="panel details-panel">
-          <p className="eyebrow">Progress</p>
-          <strong className="project-percent">{progress.percent}%</strong>
-          <div className="project-progress large">
-            <span style={{ width: `${progress.percent}%` }} />
+      <section className="project-work-section">
+        <header className="project-work-heading">
+          <div>
+            <p className="eyebrow">Project work</p>
+            <h3>Team task board</h3>
+            <p>Track each member&apos;s work through the project workflow.</p>
           </div>
-          <p className="muted-copy">{progress.completed} of {progress.total} tasks completed</p>
-        </article>
-      </div>
+          <div className="project-view-toggle" aria-label="Task view">
+            <button type="button" className={boardView === 'board' ? 'active' : ''} onClick={() => setBoardView('board')}>
+              <LayoutGrid size={16} aria-hidden="true" />
+              Board
+            </button>
+            <button type="button" className={boardView === 'list' ? 'active' : ''} onClick={() => setBoardView('list')}>
+              <List size={16} aria-hidden="true" />
+              List
+            </button>
+          </div>
+        </header>
 
-      <div className="project-status-summary" aria-label="Project task status summary">
-        {statusBuckets.map((bucket) => (
-          <article className="project-status-card" key={`summary-${bucket.status}`}>
-            <span>{bucket.status}</span>
-            <strong>{bucket.tasks.length}</strong>
-          </article>
-        ))}
-      </div>
+        <div className="project-board-filters">
+          <label className="project-task-search">
+            <Search size={16} aria-hidden="true" />
+            <span className="sr-only">Search tasks or members</span>
+            <input
+              type="search"
+              value={taskSearch}
+              onChange={(event) => setTaskSearch(event.target.value)}
+              placeholder="Search tasks or members..."
+            />
+          </label>
+          <span className="project-filter-label"><SlidersHorizontal size={15} aria-hidden="true" />Filter</span>
+          <select aria-label="Filter by member" value={memberFilter} onChange={(event) => setMemberFilter(event.target.value)}>
+            <option value="all">All members</option>
+            {projectPeople.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+          </select>
+          <select aria-label="Filter by priority" value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)}>
+            <option value="all">All priorities</option>
+            {PRIORITIES.map((priority) => <option key={priority}>{priority}</option>)}
+          </select>
+          <strong className="project-visible-count">{visibleTasks.length} of {tasks.length} tasks</strong>
+        </div>
 
-      <div className="kanban-board project-kanban-board">
-        {statusBuckets.map((bucket) => (
-          <section className="kanban-column project-kanban-column" key={bucket.status}>
-            <div className="kanban-heading">
-              <strong>{bucket.status}</strong>
-              <span>{bucket.tasks.length}</span>
+        {boardView === 'board' ? (
+          <div className="project-board-scroll">
+            <div className="project-kanban-board">
+              {statusBuckets.map((bucket) => (
+                <section className={`project-kanban-column status-${bucket.status.toLowerCase().replace(/\s+/g, '-')}`} key={bucket.status}>
+                  <div className="kanban-heading">
+                    <span className="project-status-dot" aria-hidden="true" />
+                    <strong>{bucket.status}</strong>
+                    <span className="project-column-count">{bucket.tasks.length}</span>
+                  </div>
+                  <div className="project-kanban-list">
+                    {bucket.tasks.length
+                      ? bucket.tasks.map((task, index) => renderTaskCard(task, index))
+                      : <div className="project-kanban-empty"><p>No {bucket.status.toLowerCase()} tasks.</p></div>}
+                  </div>
+                </section>
+              ))}
             </div>
-            <div className="kanban-list">
-              {bucket.tasks.length ? (
-                bucket.tasks.map((task) => (
-                  <article className="kanban-card project-kanban-card" key={`project-task-${task.id}`}>
-                    <button type="button" className="kanban-open-button" onClick={() => onOpenTask(task)}>
-                      <span className="task-path">{task.owner || 'Unassigned'}</span>
-                      <h4>{task.title}</h4>
-                      <p>{task.description || 'No task description yet.'}</p>
-                    </button>
-                    <div className="project-kanban-meta">
-                      <span>{formatDate(task.dueDate)}</span>
-                      <StatusBadge value={task.status} />
-                      <PriorityBadge value={task.priority} />
-                    </div>
-                    {onStatusChange ? (
-                      <select value={task.status} onChange={(event) => onStatusChange(task, event.target.value)}>
-                        {STATUSES.map((nextStatus) => (
-                          <option key={nextStatus}>{nextStatus}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <StatusBadge value={task.status} />
-                    )}
-                  </article>
-                ))
-              ) : (
-                <div className="project-kanban-empty">
-                  <p>No {bucket.status.toLowerCase()} tasks.</p>
-                </div>
-              )}
-            </div>
-          </section>
-        ))}
-      </div>
+          </div>
+        ) : (
+          <div className="project-task-list-view">
+            {visibleTasks.length
+              ? visibleTasks.map((task, index) => renderTaskCard(task, index))
+              : <div className="project-kanban-empty"><p>No tasks match these filters.</p></div>}
+          </div>
+        )}
+      </section>
     </section>
   )
 }

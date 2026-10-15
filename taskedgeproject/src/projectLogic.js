@@ -60,6 +60,23 @@ export function getProjectStatusBuckets(tasks) {
   }))
 }
 
+export function getFilteredProjectTasks(tasks, { search = '', memberId = 'all', priority = 'all' } = {}) {
+  const query = search.trim().toLowerCase()
+
+  return tasks.filter((task) => {
+    const matchesSearch = !query || [task.title, task.description, task.owner, task.category]
+      .some((value) => String(value || '').toLowerCase().includes(query))
+    const matchesMember = memberId === 'all' || task.assigneeId === memberId
+    const matchesPriority = priority === 'all' || task.priority === priority
+
+    return matchesSearch && matchesMember && matchesPriority
+  })
+}
+
+export function getTaskCreationProject(projects, preferredProjectId = '') {
+  return projects.find((project) => project.id === preferredProjectId) || projects[0]
+}
+
 export function buildProjectPayload(values) {
   return {
     name: values.name.trim(),

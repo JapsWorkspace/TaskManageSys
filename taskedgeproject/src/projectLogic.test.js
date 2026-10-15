@@ -4,8 +4,10 @@ import test from 'node:test'
 import {
   buildProjectPayload,
   getEligibleProjectPeople,
+  getFilteredProjectTasks,
   getProjectProgress,
   getProjectStatusBuckets,
+  getTaskCreationProject,
   normalizeProjectFromApi,
 } from './projectLogic.js'
 
@@ -88,6 +90,25 @@ test('getProjectStatusBuckets groups tasks in project board order', () => {
       { status: 'Returned', tasks: [] },
     ],
   )
+})
+
+test('getFilteredProjectTasks searches task copy and applies member and priority filters', () => {
+  const tasks = [
+    { id: 'task-1', title: 'Build dashboard', description: 'Analytics UI', assigneeId: 'user-1', owner: 'Maya Chen', priority: 'High' },
+    { id: 'task-2', title: 'Write API tests', description: 'Backend coverage', assigneeId: 'user-2', owner: 'Noah Williams', priority: 'Medium' },
+  ]
+
+  assert.deepEqual(getFilteredProjectTasks(tasks, { search: 'maya' }), [tasks[0]])
+  assert.deepEqual(getFilteredProjectTasks(tasks, { memberId: 'user-2', priority: 'Medium' }), [tasks[1]])
+  assert.deepEqual(getFilteredProjectTasks(tasks, { search: 'missing' }), [])
+})
+
+test('getTaskCreationProject prefers the open project and falls back to the first project', () => {
+  const projects = [{ id: 'project-1' }, { id: 'project-2' }]
+
+  assert.equal(getTaskCreationProject(projects, 'project-2'), projects[1])
+  assert.equal(getTaskCreationProject(projects, 'missing'), projects[0])
+  assert.equal(getTaskCreationProject([], 'project-2'), undefined)
 })
 
 test('buildProjectPayload converts form values into backend project fields', () => {
