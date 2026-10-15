@@ -1,0 +1,19 @@
+# Dependencies and generated output
+**/node_modules/
+**/dist/
+**/build/
+**/coverage/
+**/.serena/
+
+# Runtime secrets
+**/.env
+**/.env.*
+!**/.env.example
+
+# User-uploaded runtime data
+project/server/uploads/
+
+# Logs and operating-system files
+*.log
+.DS_Store
+Thumbs.db
