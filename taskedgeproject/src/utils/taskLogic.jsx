@@ -343,6 +343,7 @@ export function normalizeTaskFromApi(task) {
     owner: personName(assignee),
     reporterId: entityId(task.reporter),
     reporter: personName(task.reporter, ''),
+    reporterAvatarUrl: typeof task.reporter === 'object' && task.reporter ? task.reporter.avatarUrl || '' : '',
     collaborators,
     collaboratorIds: collaborators.map((person) => person.id),
     watchers,

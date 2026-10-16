@@ -2,14 +2,16 @@ import { useEffect, useState } from 'react'
 import { CalendarDays, ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { PRIORITIES, STATUSES, getAgendaTasks, getCalendarDays, getCalendarViewAnchor, getCalendarMonthDays, getMyDayMetrics, getRecentTasks, getTaskQueueGroups, getTaskPriorityBreakdown, getTaskStatusBreakdown, getUpcomingDeadlineTasks } from '../utils/taskLogic.jsx'
 import { formatDate, getLocalDateKey, getTimeInputValue } from '../utils/display.jsx'
-import { PaginationControls, StatusBadge, PriorityBadge, TaskCard } from '../components/common/WorkspaceUi.jsx'
+import { PaginationControls, StatusBadge, PriorityBadge, TaskCard, UserAvatar } from '../components/common/WorkspaceUi.jsx'
 import { usePaginatedRecords } from '../utils/usePaginatedRecords.jsx'
+import { getUserId } from '../utils/display.jsx'
 
-export function Dashboard({ tasks, onCreateTask, onOpenTask, onOpenTaskShortcut }) {
+export function Dashboard({ tasks, users = [], onCreateTask, onOpenTask, onOpenTaskShortcut }) {
   const agendaTasks = getAgendaTasks(tasks)
   const metrics = getMyDayMetrics(tasks)
   const recentTasks = getRecentTasks(tasks, { limit: 5 })
   const upcomingDeadlines = getUpcomingDeadlineTasks(tasks, { limit: 3 })
+  const getAssignee = (task) => users.find((person) => getUserId(person) === task.assigneeId) || { avatarUrl: task.assigneeAvatarUrl }
   const statusBreakdown = getTaskStatusBreakdown(tasks)
   const priorityBreakdown = getTaskPriorityBreakdown(tasks)
   const overviewCards = [
@@ -133,7 +135,7 @@ export function Dashboard({ tasks, onCreateTask, onOpenTask, onOpenTaskShortcut 
       <div className="task-card-list">
         {recentTasks.length ? (
           recentTasks.map((task) => (
-            <TaskCard key={task.id} task={task} onOpenTask={onOpenTask} />
+            <TaskCard key={task.id} task={task} assigneeUser={getAssignee(task)} onOpenTask={onOpenTask} />
           ))
         ) : (
           <div className="empty-state">
@@ -159,7 +161,12 @@ export function Dashboard({ tasks, onCreateTask, onOpenTask, onOpenTaskShortcut 
               key={`deadline-${task.id}`}
               onClick={() => onOpenTask(task)}
             >
-              <span>{task.project?.charAt(0) || 'T'}</span>
+              <UserAvatar
+                user={getAssignee(task)}
+                className="dashboard-assignee-avatar"
+                label={task.owner}
+                fallback="default"
+              />
               <div>
                 <strong>{task.title}</strong>
                 <p>{task.project} · {formatDate(task.dueAt || task.dueDate)}</p>

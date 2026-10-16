@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react'
+import { Archive, ArrowLeft, Ban, Download, Pencil, Play, RotateCcw, Trash2 } from 'lucide-react'
 import { getActivityAttachmentDisplay, canReopenActivityAssignment, canSubmitActivityAssignment, getActivityMetrics, getActivityHistoryItems, getActivityPolicyFacts, getActivityRecipientFacts, getActivityReminderState, getActivitySubmissionHistory, getActivitySubmissionError, getVisibleActivityAssignments, validateActivityAttachmentFile, validateActivityReview } from '../utils/activityLogic.jsx'
 import { formatDate, formatNotificationDate, formatActivityStatus, getCommentAuthor, getUserId } from '../utils/display.jsx'
-import { PaginationControls, PriorityBadge } from '../components/common/WorkspaceUi.jsx'
+import { PaginationControls, PriorityBadge, UserAvatar } from '../components/common/WorkspaceUi.jsx'
 import { usePaginatedRecords } from '../utils/usePaginatedRecords.jsx'
 import { API_BASE_URL } from '../config/runtime.jsx'
 
@@ -16,8 +17,8 @@ export function ActivitiesPage({
   onOpenActivity,
 }) {
   const [now] = useState(() => Date.now())
-  const pagination = usePaginatedRecords(activities, 6)
-  const historyItems = getActivityHistoryItems(activities, { limit: 6 })
+  const pagination = usePaginatedRecords(activities, 4)
+  const historyItems = getActivityHistoryItems(activities)
   const overdue = activities.filter((activity) => {
     const dueTime = new Date(activity.dueAt || activity.dueDate).getTime()
     return !Number.isNaN(dueTime) && dueTime < now
@@ -64,69 +65,78 @@ export function ActivitiesPage({
         </div>
       )}
 
-      <div className="activity-grid">
-        {isLoading ? (
-          <div className="empty-state">
-            <h3>Loading activities</h3>
-            <p>Fetching individual activities from the shared server.</p>
-          </div>
-        ) : activities.length ? (
-          pagination.items.map((activity) => (
-            <article className="activity-card" key={activity.id}>
-              <button type="button" className="project-open-button" onClick={() => onOpenActivity(activity)}>
-                <p className="task-path">{activity.project} &gt; {activity.reporter || 'Reporter'}</p>
-                <h3>{activity.title}</h3>
-                <p>{activity.description || 'No description yet.'}</p>
-              </button>
-              <div className="project-meta-row">
-                <strong>{formatDate(activity.dueDate)}</strong>
-                <PriorityBadge value={activity.priority} />
-                {activity.activityStatus && <span>{activity.activityStatus}</span>}
+      <div className="activity-dashboard-layout">
+        <div className="activity-dashboard-main">
+          <div className="activity-grid">
+            {isLoading ? (
+              <div className="empty-state">
+                <h3>Loading activities</h3>
+                <p>Fetching individual activities from the shared server.</p>
               </div>
-            </article>
-          ))
-        ) : (
-          <div className="empty-state">
-            <h3>No individual activities yet</h3>
-            <p>Create an activity to collect private submissions from project members.</p>
+            ) : activities.length ? (
+              pagination.items.map((activity) => (
+                <article className="activity-card activity-list-card" key={activity.id}>
+                  <button type="button" className="activity-card-open" onClick={() => onOpenActivity(activity)}>
+                    <p className="task-path">{activity.project} &gt; {activity.reporter || 'Reporter'}</p>
+                    <h3>{activity.title}</h3>
+                    <p>{activity.description || 'No description yet.'}</p>
+                  </button>
+                  <footer className="activity-card-footer">
+                    <span className="activity-card-due">Due <strong>{formatDate(activity.dueDate)}</strong></span>
+                    <PriorityBadge value={activity.priority} />
+                    {activity.activityStatus && <span className="activity-card-status">{activity.activityStatus}</span>}
+                  </footer>
+                </article>
+              ))
+            ) : (
+              <div className="empty-state">
+                <h3>No individual activities yet</h3>
+                <p>Create an activity to collect private submissions from project members.</p>
+              </div>
+            )}
           </div>
-        )}
-      </div>
-      <PaginationControls pagination={pagination} onPageChange={pagination.setPage} label="activities" />
-
-      <article className="activity-history-section activity-page-history">
-        <div className="section-row compact">
-          <div>
-            <p className="eyebrow">History</p>
-            <h3 className="section-title">Recent activity updates</h3>
-          </div>
+          <PaginationControls pagination={pagination} onPageChange={pagination.setPage} label="activities" />
         </div>
-        {historyItems.length ? (
-          <div className="activity-history-list">
-            {historyItems.map((item) => (
-              <button
-                type="button"
-                className="activity-history-row activity-history-button"
-                key={`activity-history-${item.id}`}
-                onClick={() => {
-                  const activity = activities.find((candidate) => candidate.id === item.id)
-                  if (activity) {
-                    onOpenActivity(activity)
-                  }
-                }}
-              >
-                <span>{item.title.charAt(0).toUpperCase()}</span>
-                <div>
-                  <strong>{item.title}</strong>
-                  <p>{item.project} · {item.status} · {item.actor} · {formatDate(item.changedAt)}</p>
-                </div>
-              </button>
-            ))}
+
+        <article className="activity-history-section activity-page-history">
+          <div className="section-row compact">
+            <div>
+              <p className="eyebrow">History</p>
+              <h3 className="section-title">Recent activity updates</h3>
+            </div>
           </div>
-        ) : (
-          <p className="muted-copy">Activity updates will appear here once records are created.</p>
-        )}
-      </article>
+          {historyItems.length ? (
+            <div className="activity-history-list">
+              {historyItems.map((item) => (
+                <button
+                  type="button"
+                  className="activity-history-row activity-history-button"
+                  key={`activity-history-${item.id}`}
+                  onClick={() => {
+                    const activity = activities.find((candidate) => candidate.id === item.id)
+                    if (activity) {
+                      onOpenActivity(activity)
+                    }
+                  }}
+                >
+                  <UserAvatar
+                    user={{ avatarUrl: item.actorAvatarUrl }}
+                    className="activity-history-avatar"
+                    label={item.actor}
+                    fallback="default"
+                  />
+                  <div>
+                    <strong>{item.title}</strong>
+                    <p>{item.project} · {item.status} · {item.actor} · {formatDate(item.changedAt)}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="muted-copy">Activity updates will appear here once records are created.</p>
+          )}
+        </article>
+      </div>
     </section>
   )
 }
@@ -219,132 +229,103 @@ export function ActivityDetailsPage({
   }
 
   return (
-    <section className="task-detail-page">
-      <div className="task-detail-header panel">
-        <button type="button" className="ghost-button compact" onClick={onBack}>
+    <section className="task-detail-page activity-detail-page">
+      <div className="activity-detail-toolbar">
+        <button type="button" className="project-back-button" onClick={onBack}>
+          <ArrowLeft size={17} aria-hidden="true" />
           Back to activities
         </button>
-        <div>
-          <p className="eyebrow">{activity.project}</p>
-          <h3>{activity.title}</h3>
-          <p>{activity.description || 'No description yet.'}</p>
-        </div>
-        <div className="task-detail-actions">
-          {canReview && (
-            <>
-              <button type="button" className="ghost-button compact" onClick={() => onEditActivity(activity)}>
-                Edit
-              </button>
-              <button type="button" className="ghost-button compact" onClick={() => onReopenActivity(activity.id)}>
-                Reopen
-              </button>
-              <button type="button" className="ghost-button compact" onClick={() => onExportActivityResults(activity.id)}>
-                Export CSV
-              </button>
-              <button type="button" className="ghost-button compact" onClick={() => onArchiveActivity(activity.id)}>
-                Archive
-              </button>
-              <button type="button" className="ghost-button compact danger-action" onClick={() => onCancelActivity(activity.id)}>
-                Cancel
-              </button>
-            </>
-          )}
-        </div>
+        {!canReview && myAssignment?.status === 'assigned' && (
+          <button
+            type="button"
+            className="project-new-task-button"
+            onClick={() => onStartAssignment(myAssignment.id)}
+          >
+            <Play size={16} aria-hidden="true" />
+            Start activity
+          </button>
+        )}
+        {canReview && (
+          <div className="project-detail-primary-actions activity-detail-actions">
+            <button type="button" className="project-action-button" onClick={() => onEditActivity(activity)}>
+              <Pencil size={16} aria-hidden="true" />
+              Edit
+            </button>
+            <button type="button" className="project-action-button" onClick={() => onReopenActivity(activity.id)}>
+              <RotateCcw size={16} aria-hidden="true" />
+              Reopen
+            </button>
+            <button type="button" className="project-action-button" onClick={() => onExportActivityResults(activity.id)}>
+              <Download size={16} aria-hidden="true" />
+              Export CSV
+            </button>
+            <button type="button" className="project-action-button activity-archive-button" onClick={() => onArchiveActivity(activity.id)}>
+              <Archive size={16} aria-hidden="true" />
+              Archive
+            </button>
+            <button type="button" className="project-action-button danger-action" onClick={() => onCancelActivity(activity.id)}>
+              <Ban size={16} aria-hidden="true" />
+              Cancel
+            </button>
+          </div>
+        )}
       </div>
 
       {taskMessage && <p className="form-message">{taskMessage}</p>}
 
-      {assignments.length > 0 && (
-        <div className="summary-grid team-summary">
-          {[
-            { label: 'Recipients', value: metrics.total, tone: 'blue' },
-            { label: 'Submitted', value: metrics.submitted, tone: 'amber' },
-            { label: 'Accepted', value: metrics.accepted, tone: 'green' },
-            { label: 'Returned', value: metrics.returned, tone: 'red' },
-          ].map((card) => (
-            <article className={`metric-card metric-${card.tone}`} key={card.label}>
-              <p>{card.label}</p>
-              <strong>{card.value}</strong>
-            </article>
-          ))}
+      <article className="activity-summary-card">
+        <div className="activity-summary-main">
+          <p className="eyebrow">{activity.project}</p>
+          <h3>{activity.title}</h3>
+          {activity.description && <p>{activity.description}</p>}
         </div>
-      )}
-
-      <article className="panel details-panel activity-policy-panel">
-        <div>
-          <p className="eyebrow">Submission rules</p>
-          <h4>Activity policy</h4>
-          <p className="muted-copy">These rules apply to every recipient assignment for this activity.</p>
-        </div>
-        <dl className="activity-policy-grid">
-          {policyFacts.map((fact) => (
-            <div key={fact.label}>
-              <dt>{fact.label}</dt>
-              <dd>{fact.value}</dd>
-            </div>
-          ))}
-        </dl>
+        {[
+          { label: 'Recipients', value: metrics.total },
+          { label: 'Submitted', value: metrics.submitted },
+          { label: 'Accepted', value: metrics.accepted },
+          { label: 'Returned', value: metrics.returned },
+        ].map((metric) => (
+          <div className="activity-summary-metric" key={metric.label}>
+            <span>{metric.label}</span>
+            <strong>{metric.value}</strong>
+          </div>
+        ))}
       </article>
 
-      {canReview && (
-        <article className="panel details-panel activity-recipient-panel">
-          <div>
-            <p className="eyebrow">Recipients</p>
-            <h4>Add project members</h4>
-            <p className="muted-copy">New recipients receive their own private assignment for this activity.</p>
-          </div>
+      {canReview && availableRecipients.length > 0 && (
+        <details className="activity-compact-disclosure">
+          <summary>Add project members</summary>
           <form className="activity-recipient-form" onSubmit={handleAddRecipients}>
             <select
               name="recipientIds"
               multiple
-              size="4"
+              size={Math.min(3, availableRecipients.length)}
               value={selectedRecipientIds}
               onChange={handleRecipientSelection}
-              disabled={!availableRecipients.length}
             >
               {availableRecipients.map((person) => {
                 const userId = getUserId(person)
-                return (
-                  <option key={userId} value={userId}>
-                    {getCommentAuthor(person)}
-                  </option>
-                )
+                return <option key={userId} value={userId}>{getCommentAuthor(person)}</option>
               })}
             </select>
             <button type="submit" className="primary-button compact" disabled={!selectedRecipientIds.length}>
               Add recipients
             </button>
           </form>
-          {!availableRecipients.length && (
-            <p className="muted-copy">All available project members already have assignments.</p>
-          )}
-        </article>
+        </details>
       )}
 
-      <article className="panel details-panel activity-reference-panel">
-        <div className="attachment-heading compact-heading">
-          <div>
-            <p className="eyebrow">Reference files</p>
-            <h4>Activity resources</h4>
-          </div>
-          {canReview && (
-            <>
-              <input
-                ref={referenceInputRef}
-                className="hidden-file-input"
-                type="file"
-                onChange={handleReferenceAttachmentChange}
-              />
-              <button
-                type="button"
-                className="ghost-button compact"
-                onClick={() => referenceInputRef.current?.click()}
-              >
-                Add reference file
-              </button>
-            </>
-          )}
-        </div>
+      {(referenceAttachments.length > 0 || canReview) && (
+      <details className="activity-compact-disclosure">
+        <summary>Activity resources ({referenceAttachments.length})</summary>
+        {canReview && (
+          <>
+            <input ref={referenceInputRef} className="hidden-file-input" type="file" onChange={handleReferenceAttachmentChange} />
+            <button type="button" className="ghost-button compact" onClick={() => referenceInputRef.current?.click()}>
+              Add reference file
+            </button>
+          </>
+        )}
 
         {referenceAttachments.length ? (
           <div className="attachment-list">
@@ -392,72 +373,41 @@ export function ActivityDetailsPage({
               )
             })}
           </div>
-        ) : (
-          <p className="muted-copy">No reference files attached.</p>
-        )}
-      </article>
+        ) : null}
+      </details>
+      )}
 
       {canReview && (
-        <article className="panel details-panel activity-review-tools">
-          <div>
-            <p className="eyebrow">Review queue</p>
-            <h4>Find assignments</h4>
-          </div>
-          <div className="activity-reminder-row">
-            <p className="muted-copy">{reminderState.detail}</p>
-            <button
-              type="button"
-              className="ghost-button compact"
-              onClick={() => onRemindActivity(activity.id)}
-              disabled={!reminderState.canSend}
-            >
+        <div className="activity-assignment-toolbar">
+          <label className="activity-assignment-search">
+            Search recipients
+            <input value={assignmentSearch} onChange={(event) => setAssignmentSearch(event.target.value)} placeholder="Search recipients" />
+          </label>
+          <label>
+            Sort
+            <select value={assignmentSort} onChange={(event) => setAssignmentSort(event.target.value)}>
+              <option value="name">Name</option>
+              <option value="status">Status</option>
+              <option value="submitted">Submitted</option>
+            </select>
+          </label>
+          <label>
+            Status
+            <select value={assignmentStatusFilter} onChange={(event) => setAssignmentStatusFilter(event.target.value)}>
+              <option value="">All statuses ({assignments.length})</option>
+              {assignmentStatusOptions.map((status) => {
+                const count = assignments.filter((assignment) => assignment.status === status).length
+                return <option value={status} key={status}>{formatActivityStatus(status)} ({count})</option>
+              })}
+            </select>
+          </label>
+          <div className="activity-reminder-compact" title={reminderState.detail}>
+            <span>{reminderState.detail}</span>
+            <button type="button" className="ghost-button compact" onClick={() => onRemindActivity(activity.id)} disabled={!reminderState.canSend}>
               {reminderState.label}
             </button>
           </div>
-          <div className="activity-review-controls">
-            <label>
-              Search recipients
-              <input
-                value={assignmentSearch}
-                onChange={(event) => setAssignmentSearch(event.target.value)}
-                placeholder="Search recipients"
-              />
-            </label>
-            <label>
-              Sort
-              <select value={assignmentSort} onChange={(event) => setAssignmentSort(event.target.value)}>
-                <option value="name">Name</option>
-                <option value="status">Status</option>
-                <option value="submitted">Submitted</option>
-              </select>
-            </label>
-          </div>
-          <div className="activity-status-filter" aria-label="Filter assignments by status">
-            <button
-              type="button"
-              className={!assignmentStatusFilter ? 'active' : ''}
-              onClick={() => setAssignmentStatusFilter('')}
-            >
-              All {assignments.length}
-            </button>
-            {assignmentStatusOptions.map((status) => {
-              const count = assignments.filter((assignment) => assignment.status === status).length
-
-              return (
-                <button
-                  type="button"
-                  key={status}
-                  className={assignmentStatusFilter === status ? 'active' : ''}
-                  onClick={() => setAssignmentStatusFilter((currentStatus) => (
-                    currentStatus === status ? '' : status
-                  ))}
-                >
-                  {formatActivityStatus(status)} {count}
-                </button>
-              )
-            })}
-          </div>
-        </article>
+        </div>
       )}
 
       <div className="activity-assignment-list">
@@ -467,8 +417,8 @@ export function ActivityDetailsPage({
               key={assignment.id}
               activity={activity}
               assignment={assignment}
+              policyFacts={policyFacts}
               canReview={canReview}
-              onStartAssignment={onStartAssignment}
               onSubmitAssignment={onSubmitAssignment}
               onReviewAssignment={onReviewAssignment}
               onUploadAttachment={onUploadAssignmentAttachment}
@@ -481,6 +431,14 @@ export function ActivityDetailsPage({
           <div className="empty-state">
             <h3>No assignments available</h3>
             <p>You may not be assigned to this activity, or assignment details are still loading.</p>
+            <dl className="activity-policy-inline">
+              {policyFacts.map((fact) => (
+                <div key={fact.label}>
+                  <dt>{fact.label}</dt>
+                  <dd>{fact.value}</dd>
+                </div>
+              ))}
+            </dl>
           </div>
         )}
       </div>
@@ -491,8 +449,8 @@ export function ActivityDetailsPage({
 export function ActivityAssignmentCard({
   activity,
   assignment,
+  policyFacts,
   canReview,
-  onStartAssignment,
   onSubmitAssignment,
   onReviewAssignment,
   onUploadAttachment,
@@ -503,13 +461,13 @@ export function ActivityAssignmentCard({
   const attachmentInputRef = useRef(null)
   const [validationMessage, setValidationMessage] = useState('')
   const settings = activity.activitySettings || {}
-  const canStart = !canReview && assignment.status === 'assigned'
   const canSubmit = !canReview && canSubmitActivityAssignment(assignment, settings)
   const canManageAttachments = canSubmit
   const canReopen = canReview && canReopenActivityAssignment(assignment)
   const attachments = assignment.attachments || []
   const recipientFacts = getActivityRecipientFacts(assignment, settings)
   const submissionHistory = getActivitySubmissionHistory(assignment)
+  const recipient = { avatarUrl: assignment.recipientAvatarUrl }
 
   function handleSubmit(event) {
     event.preventDefault()
@@ -578,17 +536,31 @@ export function ActivityAssignmentCard({
 
   return (
     <article className="activity-assignment-card">
-      <div>
-        <p className="task-path">{assignment.status}{assignment.isLate ? ' > Late' : ''}</p>
-        <h3>{assignment.recipientName}</h3>
-        <p>{assignment.textResponse || 'No response yet.'}</p>
+      <div className="activity-assignment-heading">
+        <UserAvatar user={recipient} className="activity-recipient-avatar" label={assignment.recipientName} fallback="default" />
+        <div className="activity-recipient-heading-copy">
+          <p className="task-path">{assignment.status}{assignment.isLate ? ' > Late' : ''}</p>
+          <h3>{assignment.recipientName}</h3>
+        </div>
+        <span className={`activity-status-badge activity-status-${assignment.status}`}>
+          {formatActivityStatus(assignment.status)}
+        </span>
       </div>
+      <p className="activity-recipient-response">{assignment.textResponse || 'No response has been submitted yet.'}</p>
       <div className="project-meta-row">
         <strong>{assignment.submissionCount} submissions</strong>
         <span>{assignment.score ?? '-'} / {assignment.maximumScore}</span>
       </div>
       <dl className="activity-recipient-facts">
         {recipientFacts.map((fact) => (
+          <div key={fact.label}>
+            <dt>{fact.label}</dt>
+            <dd>{fact.value}</dd>
+          </div>
+        ))}
+      </dl>
+      <dl className="activity-policy-inline" aria-label="Activity submission rules">
+        {policyFacts.map((fact) => (
           <div key={fact.label}>
             <dt>{fact.label}</dt>
             <dd>{fact.value}</dd>
@@ -605,14 +577,6 @@ export function ActivityAssignmentCard({
             : ''}
         </p>
       )}
-      {canStart && (
-        <div className="activity-assignment-actions start-action">
-          <button type="button" className="primary-button compact" onClick={() => onStartAssignment(assignment.id)}>
-            Start activity
-          </button>
-        </div>
-      )}
-
       <div className="activity-attachment-section">
         <div className="attachment-heading compact-heading">
           <div>
@@ -726,20 +690,26 @@ export function ActivityAssignmentCard({
           </select>
           <input name="score" type="number" min="0" max={assignment.maximumScore} placeholder="Score" />
           <input name="feedback" placeholder="Feedback" />
-          <button type="submit" className="primary-button compact">Review</button>
+          <button type="submit" className="primary-button compact">Submit review</button>
         </form>
       )}
 
       {canReview && (canReopen || assignment.recipientId) && (
-        <div className="activity-assignment-actions">
+        <div className="activity-assignment-actions activity-assignment-footer">
           {canReopen && (
             <button type="button" className="ghost-button compact" onClick={onReopenAssignment}>
               Reopen
             </button>
           )}
           {assignment.recipientId && (
-            <button type="button" className="ghost-button compact danger-action" onClick={onRemoveRecipient}>
-              Remove recipient
+            <button
+              type="button"
+              className="ghost-button compact danger-action activity-recipient-remove"
+              onClick={onRemoveRecipient}
+              aria-label="Remove recipient"
+              title="Remove recipient"
+            >
+              <Trash2 size={17} aria-hidden="true" />
             </button>
           )}
         </div>

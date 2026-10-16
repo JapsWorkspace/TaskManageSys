@@ -187,9 +187,11 @@ function App() {
   const [notifications, setNotifications] = useState([])
   const [auditLog, setAuditLog] = useState({ items: [], total: 0 })
   const [archivedRecords, setArchivedRecords] = useState({ projects: [], tasks: [], activities: [], teams: [], users: [] })
+  const [activeArchiveTab, setActiveArchiveTab] = useState('projects')
   const [isLoadingTasks, setIsLoadingTasks] = useState(false)
   const [taskError, setTaskError] = useState('')
   const [taskMessage, setTaskMessage] = useState('')
+  const [archiveMessage, setArchiveMessage] = useState('')
   const [profileMessage, setProfileMessage] = useState('')
   const [profileValidation, setProfileValidation] = useState({})
   const [statusFilter, setStatusFilter] = useState('All')
@@ -1234,15 +1236,22 @@ function App() {
       return
     }
 
-    setTaskMessage('')
+    setArchiveMessage('')
 
     try {
       const archived = await taskApi.archiveActivity(activityId)
       setActivities((currentActivities) =>
         currentActivities.filter((activity) => activity.id !== archived.id),
       )
+      setArchivedRecords((currentRecords) => ({
+        ...currentRecords,
+        activities: [archived, ...currentRecords.activities.filter((item) => item.id !== archived.id)],
+      }))
       setSelectedActivityId('')
-      setTaskMessage('Activity archived.')
+      setActiveArchiveTab('activities')
+      setActiveView('archive')
+      setActiveNav('archive')
+      setArchiveMessage('Activity archived.')
     } catch (error) {
       setTaskMessage(error.message)
     }
@@ -1426,11 +1435,11 @@ function App() {
   async function restoreArchivedRecord(type, recordId) {
     const record = (archivedRecords[type] || []).find((item) => (type === 'users' ? getUserId(item) : item.id) === recordId)
     if (!getArchiveRecordPermissions(user, type, record).canRestore) {
-      setTaskMessage('You do not have permission to restore this archived record.')
+      setArchiveMessage('You do not have permission to restore this archived record.')
       return
     }
 
-    setTaskMessage('')
+    setArchiveMessage('')
 
     try {
       const restoredRecord = await taskApi.restoreArchivedRecord(type, recordId)
@@ -1468,16 +1477,16 @@ function App() {
               : type === 'users'
                 ? 'User'
                 : 'Task'
-      setTaskMessage(`${restoredLabel} restored.`)
+      setArchiveMessage(`${restoredLabel} restored.`)
     } catch (error) {
-      setTaskMessage(error.message)
+      setArchiveMessage(error.message)
     }
   }
 
   async function deleteArchivedRecord(type, recordId) {
     const record = (archivedRecords[type] || []).find((item) => (type === 'users' ? getUserId(item) : item.id) === recordId)
     if (!getArchiveRecordPermissions(user, type, record).canDelete) {
-      setTaskMessage('You do not have permission to permanently delete this archived record.')
+      setArchiveMessage('You do not have permission to permanently delete this archived record.')
       return
     }
 
@@ -1496,7 +1505,7 @@ function App() {
       return
     }
 
-    setTaskMessage('')
+    setArchiveMessage('')
 
     try {
       await taskApi.deleteArchivedRecord(type, recordId)
@@ -1504,9 +1513,9 @@ function App() {
         ...currentRecords,
         [type]: (currentRecords[type] || []).filter((record) => record.id !== recordId),
       }))
-      setTaskMessage(`Archived ${recordLabel} deleted.`)
+      setArchiveMessage(`Archived ${recordLabel} deleted.`)
     } catch (error) {
-      setTaskMessage(error.message)
+      setArchiveMessage(error.message)
     }
   }
 
@@ -2321,6 +2330,7 @@ function App() {
             {activeView === 'dashboard' && (
               <Dashboard
                 tasks={tasks}
+                users={users}
                 onCreateTask={canCreateTask ? openNewTaskForm : null}
                 onOpenTaskShortcut={openDashboardTaskShortcut}
                 onOpenTask={openTaskFromQueue}
@@ -2448,7 +2458,7 @@ function App() {
                 teams={teams}
                 isLoading={isLoadingTasks}
                 taskError={taskError}
-                taskMessage={taskMessage}
+                taskMessage={archiveMessage}
                 canManage={canManageTeams}
                 currentUser={user}
                 onRefresh={loadWorkspaceData}
@@ -2538,6 +2548,8 @@ function App() {
             {activeView === 'archive' && canOpenArchive && (
               <ArchivePage
                 archivedRecords={archivedRecords}
+                activeArchiveTab={activeArchiveTab}
+                onArchiveTabChange={setActiveArchiveTab}
                 currentUser={user}
                 isLoading={isLoadingTasks}
                 taskError={taskError}

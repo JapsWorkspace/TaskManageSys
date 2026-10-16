@@ -2,7 +2,7 @@ import { useRef } from 'react'
 import { STATUSES, getTaskAttachmentDisplay, getTaskDetailFacts } from '../utils/taskLogic.jsx'
 import { getTaskCommentPermissions } from '../utils/taskPermissions.jsx'
 import { formatDate, formatNotificationDate, getCommentAuthor } from '../utils/display.jsx'
-import { StatusBadge, PriorityBadge } from '../components/common/WorkspaceUi.jsx'
+import { StatusBadge, PriorityBadge, UserAvatar } from '../components/common/WorkspaceUi.jsx'
 import { API_BASE_URL } from '../config/runtime.jsx'
 
 export function TaskDetailsPage({
@@ -173,7 +173,12 @@ export function TaskDetailsPage({
 
                 return (
                   <div className="comment-row task-work-comment" key={commentId}>
-                    <span className="task-work-comment-avatar">{authorName.charAt(0).toUpperCase()}</span>
+                    <UserAvatar
+                      user={comment.author}
+                      className="task-work-comment-avatar"
+                      label={authorName}
+                      fallback="default"
+                    />
                     <div className="task-work-comment-body">
                       <div className="comment-row-header">
                         <div>

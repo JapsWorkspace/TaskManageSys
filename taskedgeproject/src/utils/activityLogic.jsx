@@ -174,6 +174,7 @@ export function normalizeActivityAssignmentFromApi(assignment) {
     status: assignment.status || 'assigned',
     recipientId: entityId(recipient),
     recipientName: personName(recipient),
+    recipientAvatarUrl: recipient && typeof recipient === 'object' ? recipient.avatarUrl || '' : '',
     textResponse: assignment.textResponse || '',
     submissionCount: assignment.submissionCount || 0,
     latestSubmittedAt: assignment.latestSubmittedAt || '',
@@ -225,6 +226,7 @@ export function getActivityHistoryItems(activities = [], { limit = activities.le
       title: activity.title || 'Untitled activity',
       project: activity.project || 'Project',
       actor: activity.reporter || 'Reporter',
+      actorAvatarUrl: activity.reporterAvatarUrl || '',
       status: activity.activityStatus || activity.status || 'Activity',
       changedAt: activity.updatedAt || activity.createdAt || activity.dueAt || activity.dueDate || '',
     }))

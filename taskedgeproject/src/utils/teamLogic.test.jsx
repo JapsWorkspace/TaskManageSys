@@ -13,7 +13,7 @@ test('normalizeTeamFromApi keeps manager and member display data', () => {
     name: 'Design Team',
     description: 'Owns product screens.',
     isArchived: true,
-    manager: { _id: 'user-1', firstName: 'Mika', lastName: 'Tan' },
+    manager: { _id: 'user-1', firstName: 'Mika', lastName: 'Tan', avatarUrl: '/mika.png' },
     members: [
       { _id: 'user-2', firstName: 'Jason', lastName: 'Raine' },
       { _id: 'user-3', username: 'alex' },
@@ -27,6 +27,7 @@ test('normalizeTeamFromApi keeps manager and member display data', () => {
     isArchived: true,
     managerId: 'user-1',
     managerName: 'Mika Tan',
+    managerAvatarUrl: '/mika.png',
     memberIds: ['user-2', 'user-3'],
     members: [
       { id: 'user-2', name: 'Jason Raine' },
@@ -37,7 +38,7 @@ test('normalizeTeamFromApi keeps manager and member display data', () => {
       name: 'Design Team',
       description: 'Owns product screens.',
       isArchived: true,
-      manager: { _id: 'user-1', firstName: 'Mika', lastName: 'Tan' },
+      manager: { _id: 'user-1', firstName: 'Mika', lastName: 'Tan', avatarUrl: '/mika.png' },
       members: [
         { _id: 'user-2', firstName: 'Jason', lastName: 'Raine' },
         { _id: 'user-3', username: 'alex' },

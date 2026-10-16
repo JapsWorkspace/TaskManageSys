@@ -4,7 +4,7 @@ import { getFilteredProjectTasks, getProjectProgress, getProjectStatusBuckets } 
 import { PRIORITIES, STATUSES } from '../utils/taskLogic.jsx'
 import { canManageOwnedRecord } from '../utils/taskPermissions.jsx'
 import { formatDate } from '../utils/display.jsx'
-import { PaginationControls, StatusBadge, PriorityBadge } from '../components/common/WorkspaceUi.jsx'
+import { PaginationControls, StatusBadge, PriorityBadge, UserAvatar } from '../components/common/WorkspaceUi.jsx'
 import { usePaginatedRecords } from '../utils/usePaginatedRecords.jsx'
 
 export function ProjectsPage({
@@ -126,9 +126,12 @@ export function ProjectCard({
 
       <footer className="project-card-footer">
         <div className="project-card-manager">
-          <span className="project-manager-avatar" aria-hidden="true">
-            {(project.managerName || 'M').trim().charAt(0).toUpperCase()}
-          </span>
+          <UserAvatar
+            user={{ avatarUrl: project.managerAvatarUrl }}
+            className="project-manager-avatar"
+            label={project.managerName}
+            fallback="default"
+          />
           <span>
             <small>Manager</small>
             <strong>{project.managerName}</strong>
@@ -170,8 +173,8 @@ export function ProjectDetailsPage({
   const [priorityFilter, setPriorityFilter] = useState('all')
   const progress = getProjectProgress(project.id, tasks)
   const projectPeople = [
-    { id: project.managerId, name: project.managerName },
-    ...(project.members || []),
+    { id: project.managerId, name: project.managerName, avatarUrl: project.managerAvatarUrl, role: 'Manager' },
+    ...(project.members || []).map((member) => ({ ...member, role: 'Member' })),
   ].filter((person, index, people) => person.id && people.findIndex((item) => item.id === person.id) === index)
   const visibleTasks = getFilteredProjectTasks(tasks, {
     search: taskSearch,
@@ -293,13 +296,16 @@ export function ProjectDetailsPage({
             <small>Project team</small>
             <strong>{projectPeople.length} {projectPeople.length === 1 ? 'member' : 'members'}</strong>
           </div>
-          <div className="project-member-stack" aria-label={projectPeople.map((person) => person.name).join(', ') || 'No project members'}>
-            {projectPeople.slice(0, 5).map((person) => (
-              <span className="project-member-avatar" key={person.id} title={person.name}>
-                {getPersonInitials(person.name)}
-              </span>
+          <div className="project-team-list" aria-label={projectPeople.map((person) => `${person.role}: ${person.name}`).join(', ') || 'No project members'}>
+            {projectPeople.map((person) => (
+              <div className="project-team-person" key={person.id} title={`${person.role}: ${person.name}`}>
+                <UserAvatar user={person} className="project-team-avatar" label={person.name} fallback="default" />
+                <span>
+                  <small>{person.role}</small>
+                  <strong>{person.name}</strong>
+                </span>
+              </div>
             ))}
-            {projectPeople.length > 5 && <span className="project-member-avatar more">+{projectPeople.length - 5}</span>}
           </div>
         </div>
       </article>

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Archive, Pencil, UsersRound } from 'lucide-react'
 import { getTeamMetrics } from '../utils/teamLogic.jsx'
 import { getNotificationMetrics } from '../utils/notificationLogic.jsx'
 import { getUserDisplayName } from '../utils/userDisplayLogic.jsx'
@@ -94,45 +95,71 @@ export function TeamsPage({
 export function TeamCard({ team, canManage, onEditTeam, onArchiveTeam }) {
   const previewMembers = team.members.slice(0, 4)
   const extraMembers = Math.max(team.members.length - previewMembers.length, 0)
+  const memberCount = team.members.length
+  const MainContent = canManage ? 'button' : 'div'
 
   return (
     <article className="team-card">
-      <div className="team-card-header">
-        <div className="team-avatar" aria-hidden="true">
-          {team.name.slice(0, 1).toUpperCase()}
+      <MainContent
+        className={`team-card-main ${canManage ? 'team-card-open' : ''}`}
+        {...(canManage ? { type: 'button', onClick: () => onEditTeam(team), 'aria-label': `Edit ${team.name} team` } : {})}
+      >
+        <header className="team-card-header">
+          <span className="team-card-icon" aria-hidden="true">
+            <UsersRound size={20} />
+          </span>
+          <div className="team-card-copy">
+            <p className="team-card-kicker">Team roster</p>
+            <h3>{team.name}</h3>
+          </div>
+        </header>
+        <p className="team-card-description">{team.description || 'No description yet.'}</p>
+        <div className="team-card-members">
+          <p className="team-card-members-label">Members</p>
+          <div className="team-member-row">
+            {previewMembers.length ? (
+              previewMembers.map((member) => (
+                <span className="member-pill" key={member.id}>
+                  {member.name}
+                </span>
+              ))
+            ) : (
+              <span className="member-pill muted">No members yet</span>
+            )}
+            {extraMembers > 0 && <span className="member-pill muted">+{extraMembers} more</span>}
+          </div>
         </div>
-        <div>
-          <p className="task-path">Manager &gt; {team.managerName}</p>
-          <h3>{team.name}</h3>
+      </MainContent>
+      <footer className="team-card-footer">
+        <div className="project-card-manager">
+          <UserAvatar
+            user={{ avatarUrl: team.managerAvatarUrl }}
+            className="project-manager-avatar"
+            label={team.managerName}
+            fallback="default"
+          />
+          <span>
+            <small>Manager</small>
+            <strong>{team.managerName}</strong>
+          </span>
         </div>
-      </div>
-      <p>{team.description || 'No description yet.'}</p>
-      <div className="team-member-row">
-        {previewMembers.length ? (
-          previewMembers.map((member) => (
-            <span className="member-pill" key={member.id}>
-              {member.name}
-            </span>
-          ))
-        ) : (
-          <span className="member-pill muted">No members yet</span>
+        <span className="project-card-team">
+          <UsersRound size={15} aria-hidden="true" />
+          {memberCount} {memberCount === 1 ? 'member' : 'members'}
+        </span>
+        {canManage && (
+          <div className="project-card-actions">
+            <button type="button" aria-label={`Edit ${team.name}`} onClick={() => onEditTeam(team)}>
+              <Pencil size={15} aria-hidden="true" />
+              Edit
+            </button>
+            <button type="button" aria-label={`Archive ${team.name}`} onClick={() => onArchiveTeam(team.id)}>
+              <Archive size={15} aria-hidden="true" />
+              Archive
+            </button>
+          </div>
         )}
-        {extraMembers > 0 && <span className="member-pill muted">+{extraMembers} more</span>}
-      </div>
-      <div className="project-meta-row">
-        <strong>{team.members.length} members</strong>
-        <span>{team.managerName}</span>
-      </div>
-      {canManage && (
-        <div className="row-actions">
-          <button type="button" onClick={() => onEditTeam(team)}>
-            Edit
-          </button>
-          <button type="button" onClick={() => onArchiveTeam(team.id)}>
-            Archive
-          </button>
-        </div>
-      )}
+      </footer>
     </article>
   )
 }
@@ -276,7 +303,9 @@ export function ActivityLogPage({
               </div>
               <div className="project-meta-row">
                 <strong>{formatDate(record.createdAt)}</strong>
-                <span>{Object.keys(record.metadata || {}).length ? JSON.stringify(record.metadata) : 'No metadata'}</span>
+                {Object.keys(record.metadata || {}).length > 0 && (
+                  <span>{JSON.stringify(record.metadata)}</span>
+                )}
               </div>
             </article>
           ))
@@ -381,7 +410,7 @@ export function NotificationsPage({
                     Mark read
                   </button>
                 )}
-                <button type="button" onClick={() => onDeleteNotification(notification.id)}>
+                <button type="button" className="notification-delete-button" onClick={() => onDeleteNotification(notification.id)}>
                   Delete
                 </button>
               </div>
@@ -401,6 +430,8 @@ export function NotificationsPage({
 
 export function ArchivePage({
   archivedRecords,
+  activeArchiveTab,
+  onArchiveTabChange,
   currentUser,
   isLoading,
   taskError,
@@ -409,7 +440,6 @@ export function ArchivePage({
   onRestore,
   onDelete,
 }) {
-  const [activeArchiveTab, setActiveArchiveTab] = useState('projects')
   const records = archivedRecords[activeArchiveTab] || []
   const pagination = usePaginatedRecords(records, 6)
   const archivedActivitiesCount = archivedRecords.activities?.length || 0
@@ -461,7 +491,7 @@ export function ArchivePage({
             key={value}
             type="button"
             className={activeArchiveTab === value ? 'active' : ''}
-            onClick={() => setActiveArchiveTab(value)}
+            onClick={() => onArchiveTabChange(value)}
           >
             {label}
           </button>
@@ -563,12 +593,12 @@ export function ArchiveRecordCard({ record, type, onRestore, onDelete, currentUs
       {(permissions.canRestore || permissions.canDelete) && (
         <div className="row-actions">
           {permissions.canRestore && (
-            <button type="button" className="primary-button compact" onClick={() => onRestore(type, recordId)}>
+            <button type="button" className="primary-button compact archive-restore-button" onClick={() => onRestore(type, recordId)}>
               Restore
             </button>
           )}
           {permissions.canDelete && (
-            <button type="button" className="ghost-button compact danger-action" onClick={() => onDelete(type, recordId)}>
+            <button type="button" className="ghost-button compact danger-action archive-delete-button" onClick={() => onDelete(type, recordId)}>
               Delete permanently
             </button>
           )}
@@ -585,40 +615,42 @@ export function UserAdminCard({ person, isCurrentUser, onUpdateUser }) {
 
   return (
     <article className={`admin-user-card ${archived ? 'archived' : ''}`}>
-      <div className="team-card-header">
-        <UserAvatar user={person} className="team-avatar" label={displayName} />
-        <div>
-          <p className="task-path">{person.email || 'No email'}</p>
-          <h3>{displayName}</h3>
+      <div className="admin-user-card-main">
+        <div className="team-card-header admin-user-card-header">
+          <UserAvatar user={person} className="team-avatar admin-user-avatar" label={displayName} fallback="default" />
+          <div className="admin-user-card-identity">
+            <p className="task-path">{person.email || 'No email'}</p>
+            <h3>{displayName}</h3>
+          </div>
+        </div>
+
+        <div className="admin-user-controls">
+          <label>
+            Role
+            <select
+              value={person.role || 'member'}
+              onChange={(event) => onUpdateUser(userId, { role: event.target.value })}
+            >
+              {['admin', 'manager', 'member'].map((role) => (
+                <option key={role} value={role}>{role}</option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className={`ghost-button compact ${archived ? '' : 'danger-action'}`}
+            disabled={isCurrentUser && !archived}
+            onClick={() => onUpdateUser(userId, { isArchived: !archived })}
+          >
+            {archived ? 'Restore' : 'Archive'}
+          </button>
         </div>
       </div>
 
-      <div className="admin-user-controls">
-        <label>
-          Role
-          <select
-            value={person.role || 'member'}
-            onChange={(event) => onUpdateUser(userId, { role: event.target.value })}
-          >
-            {['admin', 'manager', 'member'].map((role) => (
-              <option key={role} value={role}>{role}</option>
-            ))}
-          </select>
-        </label>
-        <button
-          type="button"
-          className="ghost-button compact"
-          disabled={isCurrentUser && !archived}
-          onClick={() => onUpdateUser(userId, { isArchived: !archived })}
-        >
-          {archived ? 'Restore' : 'Archive'}
-        </button>
-      </div>
-
-      <div className="project-meta-row">
+      <footer className="admin-user-card-footer">
         <strong>{person.role || 'member'}</strong>
-        <span>{archived ? 'Archived' : 'Active'}</span>
-      </div>
+        <span className={archived ? 'is-archived' : 'is-active'}>{archived ? 'Archived' : 'Active'}</span>
+      </footer>
     </article>
   )
 }

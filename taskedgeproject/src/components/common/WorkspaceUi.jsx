@@ -34,13 +34,21 @@ export function PaginationControls({ pagination, onPageChange, label }) {
   )
 }
 
-export function TaskCard({ task, currentUser, onOpenTask, onEditTask, onDeleteTask }) {
+export function TaskCard({ task, assigneeUser, currentUser, onOpenTask, onEditTask, onDeleteTask }) {
   const permissions = getTaskPermissions(currentUser, task)
 
   return (
     <article className="task-card">
       <span className="check-dot" aria-hidden="true" />
-      <button type="button" className="task-open-button" onClick={() => onOpenTask?.(task)}>
+      <button type="button" className={`task-open-button ${assigneeUser ? 'with-assignee' : ''}`} onClick={() => onOpenTask?.(task)}>
+        {assigneeUser && (
+          <UserAvatar
+            user={assigneeUser}
+            className="dashboard-assignee-avatar task-card-assignee-avatar"
+            label={task.owner}
+            fallback="default"
+          />
+        )}
         <div className="task-content">
           <p className="task-path">{task.project} &gt; {task.owner}</p>
           <h3>{task.title}</h3>
