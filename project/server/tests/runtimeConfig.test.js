@@ -3,6 +3,7 @@ const test = require('node:test');
 
 const {
   getAllowedOrigins,
+  createCorsOptions,
   getJwtSecret,
   getMongoUri,
   isOriginAllowed,
@@ -41,3 +42,16 @@ test('production origins are parsed trimmed and matched exactly', () => {
   assert.equal(isOriginAllowed('https://taskedge.vercel.app', origins), true);
   assert.equal(isOriginAllowed('https://evil.example', origins), false);
 })
+
+test('development CORS permits Flutter Web loopback origins on dynamic ports only', async () => {
+  const check = (origin, env) => new Promise((resolve) => {
+    createCorsOptions(['http://localhost:5173'], env).origin(origin, (error, allowed) => {
+      resolve({ error, allowed });
+    });
+  });
+
+  assert.deepEqual(await check('http://localhost:58396', { NODE_ENV: 'development' }), { error: null, allowed: true });
+  assert.deepEqual(await check('http://127.0.0.1:58396', { NODE_ENV: 'development' }), { error: null, allowed: true });
+  assert.equal((await check('https://localhost:58396', { NODE_ENV: 'development' })).allowed, undefined);
+  assert.equal((await check('http://localhost:58396', { NODE_ENV: 'production' })).allowed, undefined);
+});

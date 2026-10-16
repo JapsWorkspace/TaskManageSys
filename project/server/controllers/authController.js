@@ -1,4 +1,6 @@
 const bcrypt = require('bcryptjs');
+const fs = require('fs');
+const path = require('path');
 const Auth = require('../models/authModel');
 const { logActivity } = require('../services/activity');
 const crypto = require('crypto');
@@ -231,6 +233,35 @@ deleteMe: async (req, res, next) => {
   try {
     await Auth.findByIdAndUpdate(req.user._id, { $set: { isArchived: true }, $inc: { tokenVersion: 1 } });
     res.json({ message: 'Account deleted.' });
+  } catch (error) { next(error); }
+},
+uploadAvatar: async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'Please select an image.' });
+    const extension = path.extname(req.file.originalname).toLowerCase();
+    const allowedExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp']);
+    if (!req.file.mimetype.startsWith('image/') || !allowedExtensions.has(extension)) {
+      fs.unlink(req.file.path, () => {});
+      return res.status(400).json({ message: 'Profile picture must be a JPG, PNG, or WebP image.' });
+    }
+    if (req.file.size > 5 * 1024 * 1024) {
+      fs.unlink(req.file.path, () => {});
+      return res.status(400).json({ message: 'Profile picture must be smaller than 5 MB.' });
+    }
+    const previous = req.user.avatarUrl;
+    req.user.avatarUrl = `/uploads/${req.file.filename}`;
+    await req.user.save();
+    if (previous?.startsWith('/uploads/')) fs.unlink(path.join(__dirname, '..', 'uploads', path.basename(previous)), () => {});
+    res.json({ message: 'Profile picture updated.', user: toSafeUser(req.user) });
+  } catch (error) { next(error); }
+},
+removeAvatar: async (req, res, next) => {
+  try {
+    const previous = req.user.avatarUrl;
+    req.user.avatarUrl = '';
+    await req.user.save();
+    if (previous?.startsWith('/uploads/')) fs.unlink(path.join(__dirname, '..', 'uploads', path.basename(previous)), () => {});
+    res.json({ message: 'Profile picture removed.', user: toSafeUser(req.user) });
   } catch (error) { next(error); }
 },
 changePassword: async (req, res, next) => {

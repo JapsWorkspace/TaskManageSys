@@ -42,11 +42,22 @@ const isOriginAllowed = (origin, allowedOrigins) => (
   !origin || allowedOrigins.includes(trimTrailingSlash(origin))
 );
 
+const isDevelopmentLocalOrigin = (origin, env = process.env) => {
+  if (!origin || isProduction(env)) return false;
+  try {
+    const parsed = new URL(origin);
+    return parsed.protocol === 'http:'
+      && ['localhost', '127.0.0.1', '[::1]', '::1'].includes(parsed.hostname);
+  } catch (_) {
+    return false;
+  }
+};
+
 const shouldUseLocalDatabaseFallback = (env = process.env) => !isProduction(env);
 
-const createCorsOptions = (allowedOrigins) => ({
+const createCorsOptions = (allowedOrigins, env = process.env) => ({
   origin(origin, callback) {
-    if (isOriginAllowed(origin, allowedOrigins)) {
+    if (isOriginAllowed(origin, allowedOrigins) || isDevelopmentLocalOrigin(origin, env)) {
       callback(null, true);
       return;
     }
@@ -59,6 +70,7 @@ module.exports = {
   getAllowedOrigins,
   getJwtSecret,
   getMongoUri,
+  isDevelopmentLocalOrigin,
   isOriginAllowed,
   shouldUseLocalDatabaseFallback,
 };

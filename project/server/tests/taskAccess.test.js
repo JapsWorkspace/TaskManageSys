@@ -35,16 +35,17 @@ test('full task management follows creator or managed-project ownership', () => 
   assert.equal(canManageTask(member, { reporter: 'member-1' }, managedProject), false);
 });
 
-test('workers can update progress while attachments remain assignee-only', () => {
-  const assignedTask = { assignee: 'member-1', collaborators: ['member-2'], watchers: ['member-3'] };
+test('assignees, collaborators, and authorized managers can manage task attachments', () => {
+  const assignedTask = { reporter: 'manager-1', assignee: 'member-1', collaborators: ['member-2'], watchers: ['member-3'] };
 
   assert.equal(canUpdateTaskProgress(member, assignedTask), true);
   assert.equal(canManageTaskAttachments(member, assignedTask, otherProject), true);
   assert.equal(canUpdateTaskProgress({ _id: 'member-2', role: 'member' }, assignedTask), true);
-  assert.equal(canManageTaskAttachments({ _id: 'member-2', role: 'member' }, assignedTask, otherProject), false);
+  assert.equal(canManageTaskAttachments({ _id: 'member-2', role: 'member' }, assignedTask, otherProject), true);
   assert.equal(canManageTaskAttachments({ _id: 'member-3', role: 'member' }, assignedTask, otherProject), false);
-  assert.equal(canManageTaskAttachments(manager, assignedTask, otherProject), false);
-  assert.equal(canManageTaskAttachments(admin, assignedTask, otherProject), false);
+  assert.equal(canManageTaskAttachments(manager, assignedTask, managedProject), true);
+  assert.equal(canManageTaskAttachments(manager, assignedTask, otherProject), true);
+  assert.equal(canManageTaskAttachments(admin, assignedTask, otherProject), true);
 });
 
 test('managers cannot assign a new project or team to another manager', () => {
@@ -158,11 +159,11 @@ test('task role-permission matrix covers every supported relationship', () => {
   const cases = [
     { label: 'member', user: { _id: 'ordinary-member-1', role: 'member' }, manage: false, progress: false, attachments: false, delete: false },
     { label: 'watcher', user: { _id: 'watcher-1', role: 'member' }, manage: false, progress: false, attachments: false, delete: false },
-    { label: 'collaborator', user: { _id: 'collaborator-1', role: 'member' }, manage: false, progress: true, attachments: false, delete: false },
-    { label: 'task creator', user: { _id: 'creator-1', role: 'manager' }, manage: true, progress: false, attachments: false, delete: true },
-    { label: 'project manager', user: { _id: 'project-manager-1', role: 'manager' }, manage: true, progress: false, attachments: false, delete: false },
+    { label: 'collaborator', user: { _id: 'collaborator-1', role: 'member' }, manage: false, progress: true, attachments: true, delete: false },
+    { label: 'task creator', user: { _id: 'creator-1', role: 'manager' }, manage: true, progress: false, attachments: true, delete: true },
+    { label: 'project manager', user: { _id: 'project-manager-1', role: 'manager' }, manage: true, progress: false, attachments: true, delete: false },
     { label: 'unrelated manager', user: { _id: 'unrelated-manager-1', role: 'manager' }, manage: false, progress: false, attachments: false, delete: false },
-    { label: 'admin', user: { _id: 'admin-1', role: 'admin' }, manage: true, progress: false, attachments: false, delete: true },
+    { label: 'admin', user: { _id: 'admin-1', role: 'admin' }, manage: true, progress: false, attachments: true, delete: true },
   ];
 
   for (const entry of cases) {

@@ -39,7 +39,9 @@ const canUpdateTaskProgress = (user, task) => (
   isAssignedWorker(user, task)
 );
 
-const canManageTaskAttachments = (user, task) => isTaskAssignee(user, task);
+const canManageTaskAttachments = (user, task, project) => (
+  isAssignedWorker(user, task) || canManageTask(user, task, project)
+);
 
 const canDeleteTask = (user, task) => (
   user?.role === 'admin'

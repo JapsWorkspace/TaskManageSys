@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/session_service.dart';
 import '../services/api_client.dart';
+import '../services/api_config.dart';
 import '../services/theme_service.dart';
 import 'ActivityPage.dart';
 import 'AdminUsersPage.dart';
@@ -45,6 +46,12 @@ class _ProfilePageState extends State<ProfilePage> {
     final role = user?['role'] ?? 'member';
     final name = '${user?['firstName'] ?? ''} ${user?['lastName'] ?? ''}'
         .trim();
+    final storedAvatar = (user?['avatarUrl'] ?? '').toString();
+    final avatarSource = storedAvatar.isEmpty
+        ? null
+        : storedAvatar.startsWith('http')
+        ? storedAvatar
+        : '${ApiConfig.origin}$storedAvatar';
     return Scaffold(
       appBar: AppBar(title: const Text('Profile')),
       body: ListView(
@@ -52,10 +59,15 @@ class _ProfilePageState extends State<ProfilePage> {
         children: [
           CircleAvatar(
             radius: 46,
-            child: Text(
-              name.isEmpty ? 'U' : name[0].toUpperCase(),
-              style: const TextStyle(fontSize: 34),
-            ),
+            foregroundImage: avatarSource == null
+                ? null
+                : NetworkImage(avatarSource),
+            child: avatarSource == null
+                ? Text(
+                    name.isEmpty ? 'U' : name[0].toUpperCase(),
+                    style: const TextStyle(fontSize: 34),
+                  )
+                : null,
           ),
           const SizedBox(height: 14),
           Center(
@@ -126,15 +138,18 @@ class _ProfilePageState extends State<ProfilePage> {
                 onTap: () => open(const ActivityPage()),
               ),
             ),
-          if (role == 'admin' || role == 'manager')
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.archive_outlined),
-                title: const Text('Archived records'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => open(const ArchivePage()),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.archive_outlined),
+              title: Text(
+                role == 'member'
+                    ? 'Archived personal tasks'
+                    : 'Archived records',
               ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => open(const ArchivePage()),
             ),
+          ),
           const SizedBox(height: 16),
           OutlinedButton.icon(
             onPressed: () async {

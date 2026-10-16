@@ -8,7 +8,7 @@ class RealtimeService {
   Future<void> connect(void Function() onChanged) async {
     final token = await SessionService.token();
     _socket = io.io(
-      ApiConfig.api.replaceFirst(RegExp(r'/api/?$'), ''),
+      ApiConfig.api.replaceFirst('/api', ''),
       io.OptionBuilder()
           .setTransports(['websocket'])
           .disableAutoConnect()
@@ -21,6 +21,7 @@ class RealtimeService {
       'project:changed',
       'team:changed',
       'activity-assignment:changed',
+      'notification:new',
     ]) {
       _socket!.on(event, (_) => onChanged());
     }

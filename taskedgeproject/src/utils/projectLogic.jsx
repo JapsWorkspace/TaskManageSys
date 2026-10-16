@@ -35,12 +35,10 @@ export function normalizeProjectFromApi(project) {
     priority: project.priority || 'medium',
     managerId,
     managerName: personName(project.manager, 'No manager'),
-    managerAvatarUrl: typeof project.manager === 'object' ? project.manager.avatarUrl || '' : '',
     memberIds: members.map(entityId).filter(Boolean),
     members: members.map((member) => ({
       id: entityId(member),
       name: personName(member, 'Team member'),
-      avatarUrl: member.avatarUrl || '',
     })),
     raw: project,
   }

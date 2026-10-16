@@ -24,7 +24,6 @@ export function normalizeTeamFromApi(team) {
     isArchived: team.isArchived === true,
     managerId,
     managerName: personName(team.manager, 'No manager'),
-    managerAvatarUrl: typeof team.manager === 'object' && team.manager ? team.manager.avatarUrl || '' : '',
     memberIds: members.map(entityId).filter(Boolean),
     members: members.map((member) => ({
       id: entityId(member),

@@ -8,7 +8,7 @@ const Notification = require('../models/notificationModel');
 const Activity = require('../models/activityLogModel');
 const { logActivity } = require('../services/activity');
 const { notify } = require('../services/notifications');
-const { emitAll } = require('../services/events');
+const { emitAll, emitToUser } = require('../services/events');
 const { buildUserAccountUpdateNotifications } = require('../utils/userAccountNotifications');
 const {
   collectProjectRecipients,
@@ -17,7 +17,7 @@ const {
 } = require('../utils/notificationRecipients');
 const fs = require('fs');
 const path = require('path');
-const { shiftDate, dependencyBlockMessage } = require('../services/taskRules');
+const { shiftDate, dependencyBlockMessage, personalTaskDateError } = require('../services/taskRules');
 const {
   canAssignCreatedRecordManager,
   canCreateTaskInProject,
@@ -52,13 +52,31 @@ const hasAdminTaskParticipant = async (participantIds) => {
 };
 
 const visibleTaskQuery = async (user) => {
-  if (user.role === 'admin') return {};
+  const ownPersonal = { scope: 'personal', owner: user._id };
+  const projectTask = { scope: { $ne: 'personal' } };
+  if (user.role === 'admin') return { $or: [projectTask, ownPersonal] };
   const activityIds = await ActivityAssignment.find({ recipient: user._id }).distinct('activity');
   if (user.role === 'manager') {
     const managedProjects = await Project.find({ manager: user._id }).distinct('_id');
-    return { $or: [{ reporter: user._id }, { assignee: user._id }, { collaborators: user._id }, { watchers: user._id }, { _id: { $in: activityIds } }, { project: { $in: managedProjects } }] };
+    return { $or: [ownPersonal, { ...projectTask, reporter: user._id }, { ...projectTask, assignee: user._id }, { ...projectTask, collaborators: user._id }, { ...projectTask, watchers: user._id }, { ...projectTask, _id: { $in: activityIds } }, { ...projectTask, project: { $in: managedProjects } }] };
   }
-  return { $or: [{ assignee: user._id }, { collaborators: user._id }, { watchers: user._id }, { _id: { $in: activityIds } }] };
+  return { $or: [ownPersonal, { ...projectTask, assignee: user._id }, { ...projectTask, collaborators: user._id }, { ...projectTask, watchers: user._id }, { ...projectTask, _id: { $in: activityIds } }] };
+};
+const sendPersonalReminders = async (userId) => {
+  const now = new Date();
+  const rules = [
+    ['reminderAt', { $lte: now }, 'reminderNotifiedAt', 'Personal task reminder', 'reminder'],
+    ['deadline', { $lt: now }, 'overdueNotifiedAt', 'Personal task overdue', 'overdue'],
+    ['deadline', { $gte: now, $lte: new Date(now.getTime() + 86400000) }, 'dueSoonNotifiedAt', 'Personal task due soon', 'deadline'],
+  ];
+  for (const [dateField, dateQuery, notifiedField, title, type] of rules) {
+    const due = await Task.find({ scope: 'personal', owner: userId, isArchived: false, isCancelled: false, status: { $ne: 'completed' }, [dateField]: dateQuery, [notifiedField]: null });
+    for (const task of due) {
+      await notify(userId, title, task.title, type, 'Task', task._id);
+      task[notifiedField] = now;
+      await task.save();
+    }
+  }
 };
 const list = (Model, populate = '') => async (req, res, next) => { try {
   const page = Math.max(Number(req.query.page) || 1, 1); const limit = Math.min(Number(req.query.limit) || 50, 100);
@@ -122,9 +140,82 @@ exports.activityLog = async (req, res, next) => { try {
   ]);
   res.json({ items, total });
 } catch (e) { next(e); } };
-exports.listTeams = list(Team, 'manager members');
+exports.listTeams = async (req, res, next) => { try {
+  const query = { isArchived: req.query.archived === 'true' };
+  if (req.user.role !== 'admin') query.$or = [{ manager: req.user._id }, { members: req.user._id }];
+  const items = await Team.find(query).populate('manager members').sort('-createdAt');
+  res.json({ items, total: items.length });
+} catch (e) { next(e); } };
+const syncTeamProjects = async (team) => {
+  const teamMembers = [...new Set((team.members || []).map((member) => String(member._id || member)))];
+  const projects = await Project.find({ team: team._id }).select('_id manager');
+  for (const project of projects) {
+    const members = teamMembers.filter((id) => id !== String(project.manager));
+    const updated = await Project.findByIdAndUpdate(project._id, { $set: { members } }, { new: true })
+      .populate('team manager members');
+    if (updated) emitAll('project:changed', updated);
+  }
+  return projects.length;
+};
+exports.teamOverview = async (req, res, next) => { try {
+  const visibility = req.user.role === 'admin'
+    ? { _id: req.params.id }
+    : { _id: req.params.id, $or: [{ manager: req.user._id }, { members: req.user._id }] };
+  const team = await Team.findOne(visibility).populate('manager members');
+  if (!team) return res.status(404).json({ message: 'Team not found.' });
+  const projects = await Project.find({ team: team._id, isArchived: false })
+    .populate('team manager members').sort('-createdAt');
+  const projectIds = projects.map((project) => project._id);
+  const tasks = await Task.find({ project: { $in: projectIds }, isArchived: false, type: 'standard' })
+    .populate('project assignee reporter collaborators watchers dependencies').sort('-createdAt');
+  const completed = tasks.filter((task) => task.status === 'completed').length;
+  const overdue = tasks.filter((task) => task.deadline && task.deadline < new Date() && task.status !== 'completed').length;
+  const participates = (task, userId) => String(task.assignee?._id || task.assignee || '') === String(userId)
+    || (task.collaborators || []).some((value) => String(value._id || value) === String(userId));
+  const people = [team.manager, ...(team.members || [])].filter(Boolean);
+  const seenPeople = new Set();
+  const workload = people.filter((person) => {
+    const id = String(person._id || person);
+    if (seenPeople.has(id)) return false;
+    seenPeople.add(id);
+    return true;
+  }).map((person) => ({
+    user: person,
+    assigned: tasks.filter((task) => participates(task, person._id || person)).length,
+    completed: tasks.filter((task) => task.status === 'completed' && participates(task, person._id || person)).length,
+  }));
+  res.json({ item: team, projects, tasks, summary: {
+    projects: projects.length,
+    tasks: tasks.length,
+    completed,
+    overdue,
+    progress: tasks.length ? Math.round(completed / tasks.length * 100) : 0,
+  }, workload });
+} catch (e) { next(e); } };
 exports.createTeam = async (req, res, next) => { try { if (!canAssignCreatedRecordManager(req.user, req.body.manager)) return forbiddenFieldsResponse(res, ['manager']); const manager = managerForCreatedRecord(req.user, req.body.manager); const invalidManager = await validateManagedManager(manager); if (invalidManager) return res.status(400).json({ message: invalidManager }); const invalidMembers = await validateManagedMembers(manager, req.body.members); if (invalidMembers) return res.status(400).json({ message: invalidMembers }); const item = await Team.create({ ...req.body, manager }); await notifyRecipients(collectTeamRecipients(item, { exclude: req.user._id }), 'Team created', item.name, 'team', 'Team', item._id); await logActivity(req.user._id, 'CREATE_TEAM', 'Team', item._id); emitAll('team:changed', item); res.status(201).json({ item }); } catch (e) { next(e); } };
-exports.updateTeam = async (req, res, next) => { try { const query = req.user.role === 'admin' ? { _id: req.params.id } : { _id: req.params.id, manager: req.user._id }; const authorization = getPermittedManagedRecordChanges(req.user, req.body); if (authorization.deniedFields.length) return forbiddenFieldsResponse(res, authorization.deniedFields); const changes = authorization.changes; const before = await Team.findOne(query).select('manager members'); if (!before) return res.status(403).json({ message: 'Only this team manager can update it.' }); if (Object.hasOwn(changes, 'manager')) { const invalidManager = await validateManagedManager(changes.manager); if (invalidManager) return res.status(400).json({ message: invalidManager }); } if (Object.hasOwn(changes, 'members') || Object.hasOwn(changes, 'manager')) { const invalidMembers = await validateManagedMembers(changes.manager || before.manager, changes.members || before.members); if (invalidMembers) return res.status(400).json({ message: invalidMembers }); } const item = await Team.findOneAndUpdate(query, changes, { new: true, runValidators: true }); const title = Object.hasOwn(changes, 'isArchived') ? (item.isArchived ? 'Team archived' : 'Team restored') : 'Team updated'; await notifyRecipients(collectTeamRecipients(item, { exclude: req.user._id }), title, item.name, 'team', 'Team', item._id); await logActivity(req.user._id, 'UPDATE_TEAM', 'Team', item._id); emitAll('team:changed', item); res.json({ item }); } catch (e) { next(e); } };
+exports.updateTeam = async (req, res, next) => { try {
+  const query = req.user.role === 'admin' ? { _id: req.params.id } : { _id: req.params.id, manager: req.user._id };
+  const authorization = getPermittedManagedRecordChanges(req.user, req.body);
+  if (authorization.deniedFields.length) return forbiddenFieldsResponse(res, authorization.deniedFields);
+  const changes = authorization.changes;
+  const before = await Team.findOne(query).select('manager members');
+  if (!before) return res.status(403).json({ message: 'Only this team manager can update it.' });
+  if (Object.hasOwn(changes, 'manager')) {
+    const invalidManager = await validateManagedManager(changes.manager);
+    if (invalidManager) return res.status(400).json({ message: invalidManager });
+  }
+  if (Object.hasOwn(changes, 'members') || Object.hasOwn(changes, 'manager')) {
+    const invalidMembers = await validateManagedMembers(changes.manager || before.manager, changes.members || before.members);
+    if (invalidMembers) return res.status(400).json({ message: invalidMembers });
+  }
+  const item = await Team.findOneAndUpdate(query, changes, { new: true, runValidators: true }).populate('manager members');
+  const synchronizedProjects = await syncTeamProjects(item);
+  const title = Object.hasOwn(changes, 'isArchived') ? (item.isArchived ? 'Team archived' : 'Team restored') : 'Team updated';
+  await notifyRecipients(collectTeamRecipients(item, { exclude: req.user._id }), title, item.name, 'team', 'Team', item._id);
+  await logActivity(req.user._id, 'UPDATE_TEAM', 'Team', item._id);
+  emitAll('team:changed', item);
+  res.json({ item, synchronizedProjects });
+} catch (e) { next(e); } };
 exports.deleteTeam = async (req, res, next) => { try { const item = await Team.findByIdAndDelete(req.params.id); if (!item) return res.status(404).json({ message: 'Team not found.' }); await notifyRecipients(collectTeamRecipients(item, { exclude: req.user._id }), 'Team deleted', item.name, 'team', 'Team', item._id); await logActivity(req.user._id, 'DELETE_TEAM', 'Team', req.params.id); res.json({ message: 'Team deleted.', item }); } catch (e) { next(e); } };
 exports.setTeamMembers = async (req, res, next) => { try {
   const query = req.user.role === 'admin' ? { _id: req.params.id } : { _id: req.params.id, manager: req.user._id };
@@ -136,17 +227,71 @@ exports.setTeamMembers = async (req, res, next) => { try {
   if (!item) return res.status(403).json({ message: 'Only this team manager can update members.' });
   await notifyRecipients(collectTeamRecipients(item, { exclude: req.user._id }), 'Team members updated', item.name, 'team', 'Team', item._id);
   await logActivity(req.user._id, 'UPDATE_TEAM_MEMBERS', 'Team', item._id, { members: item.members.length });
-  emitAll('team:changed', item); res.json({ item });
+  const synchronizedProjects = await syncTeamProjects(item);
+  emitAll('team:changed', item); res.json({ item, synchronizedProjects });
 } catch (e) { next(e); } };
 exports.listProjects = list(Project, 'team manager members');
-exports.createProject = async (req, res, next) => { try { if (!canAssignCreatedRecordManager(req.user, req.body.manager)) return forbiddenFieldsResponse(res, ['manager']); const manager = managerForCreatedRecord(req.user, req.body.manager); const invalidManager = await validateManagedManager(manager); if (invalidManager) return res.status(400).json({ message: invalidManager }); const invalidMembers = await validateManagedMembers(manager, req.body.members); if (invalidMembers) return res.status(400).json({ message: invalidMembers }); const item = await Project.create({ ...req.body, manager }); await notifyRecipients(collectProjectRecipients(item, { exclude: req.user._id }), 'Project created', item.name, 'project', 'Project', item._id); await logActivity(req.user._id, 'CREATE_PROJECT', 'Project', item._id); emitAll('project:changed', item); res.status(201).json({ item }); } catch (e) { next(e); } };
-exports.updateProject = async (req, res, next) => { try { const query = req.user.role === 'admin' ? { _id: req.params.id } : { _id: req.params.id, manager: req.user._id }; const authorization = getPermittedManagedRecordChanges(req.user, req.body); if (authorization.deniedFields.length) return forbiddenFieldsResponse(res, authorization.deniedFields); const changes = authorization.changes; const before = await Project.findOne(query).select('manager members'); if (!before) return res.status(403).json({ message: 'Only this project manager can update it.' }); if (Object.hasOwn(changes, 'manager')) { const invalidManager = await validateManagedManager(changes.manager); if (invalidManager) return res.status(400).json({ message: invalidManager }); } if (Object.hasOwn(changes, 'members') || Object.hasOwn(changes, 'manager')) { const invalidMembers = await validateManagedMembers(changes.manager || before.manager, changes.members || before.members); if (invalidMembers) return res.status(400).json({ message: invalidMembers }); } const item = await Project.findOneAndUpdate(query, changes, { new: true, runValidators: true }); const title = Object.hasOwn(changes, 'isArchived') ? (item.isArchived ? 'Project archived' : 'Project restored') : 'Project updated'; await notifyRecipients(collectProjectRecipients(item, { exclude: req.user._id }), title, item.name, 'project', 'Project', item._id); await logActivity(req.user._id, 'UPDATE_PROJECT', 'Project', item._id); emitAll('project:changed', item); res.json({ item }); } catch (e) { next(e); } };
+const projectWithSelectedTeam = async (body, user) => {
+  const changes = { ...body };
+  if (!body.team) return changes;
+  const query = user.role === 'admin'
+    ? { _id: body.team }
+    : { _id: body.team, manager: user._id };
+  const team = await Team.findOne(query).select('manager members');
+  if (!team) {
+    const error = new Error('You can only assign a team that you manage.');
+    error.status = 403;
+    throw error;
+  }
+  const managerId = String(team.manager);
+  changes.manager = managerId;
+  changes.members = [...new Set((team.members || []).map(String))]
+    .filter((memberId) => memberId !== managerId);
+  return changes;
+};
+exports.createProject = async (req, res, next) => { try {
+  if (!canAssignCreatedRecordManager(req.user, req.body.manager)) return forbiddenFieldsResponse(res, ['manager']);
+  const payload = await projectWithSelectedTeam(req.body, req.user);
+  const manager = payload.manager || managerForCreatedRecord(req.user, req.body.manager);
+  const invalidManager = await validateManagedManager(manager);
+  if (invalidManager) return res.status(400).json({ message: invalidManager });
+  const invalidMembers = await validateManagedMembers(manager, payload.members);
+  if (invalidMembers) return res.status(400).json({ message: invalidMembers });
+  const item = await Project.create({ ...payload, manager });
+  await notifyRecipients(collectProjectRecipients(item, { exclude: req.user._id }), 'Project created', item.name, 'project', 'Project', item._id);
+  await logActivity(req.user._id, 'CREATE_PROJECT', 'Project', item._id);
+  emitAll('project:changed', item);
+  res.status(201).json({ item: await item.populate('team manager members') });
+} catch (e) { if (e.status) return res.status(e.status).json({ message: e.message }); next(e); } };
+exports.updateProject = async (req, res, next) => { try {
+  const query = req.user.role === 'admin' ? { _id: req.params.id } : { _id: req.params.id, manager: req.user._id };
+  const authorization = getPermittedManagedRecordChanges(req.user, req.body);
+  if (authorization.deniedFields.length) return forbiddenFieldsResponse(res, authorization.deniedFields);
+  const before = await Project.findOne(query).select('manager members');
+  if (!before) return res.status(403).json({ message: 'Only this project manager can update it.' });
+  const changes = await projectWithSelectedTeam(authorization.changes, req.user);
+  if (Object.hasOwn(changes, 'manager')) {
+    const invalidManager = await validateManagedManager(changes.manager);
+    if (invalidManager) return res.status(400).json({ message: invalidManager });
+  }
+  if (Object.hasOwn(changes, 'members') || Object.hasOwn(changes, 'manager')) {
+    const invalidMembers = await validateManagedMembers(changes.manager || before.manager, changes.members || before.members);
+    if (invalidMembers) return res.status(400).json({ message: invalidMembers });
+  }
+  const item = await Project.findOneAndUpdate(query, changes, { new: true, runValidators: true }).populate('team manager members');
+  const title = Object.hasOwn(changes, 'isArchived') ? (item.isArchived ? 'Project archived' : 'Project restored') : 'Project updated';
+  await notifyRecipients(collectProjectRecipients(item, { exclude: req.user._id }), title, item.name, 'project', 'Project', item._id);
+  await logActivity(req.user._id, 'UPDATE_PROJECT', 'Project', item._id);
+  emitAll('project:changed', item);
+  res.json({ item });
+} catch (e) { if (e.status) return res.status(e.status).json({ message: e.message }); next(e); } };
 exports.deleteProject = async (req, res, next) => { try { const item = await Project.findByIdAndDelete(req.params.id); if (!item) return res.status(404).json({ message: 'Project not found.' }); await notifyRecipients(collectProjectRecipients(item, { exclude: req.user._id }), 'Project deleted', item.name, 'project', 'Project', item._id); await logActivity(req.user._id, 'DELETE_PROJECT', 'Project', req.params.id); res.json({ message: 'Project deleted.', item }); } catch (e) { next(e); } };
 exports.listTasks = async (req, res, next) => { try {
+  await sendPersonalReminders(req.user._id);
   const query = { ...await visibleTaskQuery(req.user), isArchived: req.query.archived === 'true' };
-  ['status', 'priority', 'project', 'assignee', 'type'].forEach((key) => { if (req.query[key]) query[key] = req.query[key]; });
+  ['status', 'priority', 'project', 'team', 'assignee', 'type', 'scope'].forEach((key) => { if (req.query[key]) query[key] = req.query[key]; });
   if (req.query.search) query.title = new RegExp(req.query.search, 'i');
-  const items = await Task.find(query).populate('project assignee reporter collaborators watchers dependencies').sort(req.query.sort || '-createdAt');
+  const items = await Task.find(query).populate('project team owner assignee reporter collaborators watchers dependencies').sort(req.query.sort || '-createdAt');
   if (req.user.role !== 'admin') {
     const assignments = await ActivityAssignment.find({ recipient: req.user._id, activity: { $in: items.map((item) => item._id) } }).select('activity status');
     const statuses = new Map(assignments.map((item) => [String(item.activity), item.status]));
@@ -155,7 +300,71 @@ exports.listTasks = async (req, res, next) => { try {
   }
   res.json({ items, total: items.length });
 } catch (e) { next(e); } };
-exports.getTask = async (req, res, next) => { try { const item = await Task.findOne({ _id: req.params.id, ...await visibleTaskQuery(req.user) }).populate('project assignee reporter collaborators watchers dependencies'); if (!item) return res.status(404).json({ message: 'Task not found.' }); res.json({ item }); } catch (e) { next(e); } };
+
+exports.listPersonalTasks = async (req, res, next) => { try {
+  await sendPersonalReminders(req.user._id);
+  const items = await Task.find({ scope: 'personal', owner: req.user._id, isArchived: req.query.archived === 'true' })
+    .populate('owner assignee reporter').sort(req.query.sort || '-createdAt');
+  res.json({ items, total: items.length });
+} catch (e) { next(e); } };
+
+exports.createPersonalTask = async (req, res, next) => { try {
+  if (!String(req.body.title || '').trim()) return res.status(400).json({ message: 'Title is required.' });
+  const dateError = personalTaskDateError(req.body);
+  if (dateError) return res.status(400).json({ message: dateError });
+  const allowed = ['title', 'description', 'priority', 'status', 'startDate', 'deadline', 'reminderAt', 'tags', 'category', 'subtasks', 'recurrence'];
+  const clean = Object.fromEntries(Object.entries(req.body).filter(([key]) => allowed.includes(key)));
+  const task = await Task.create({ ...clean, type: 'standard', scope: 'personal', owner: req.user._id, reporter: req.user._id, assignee: req.user._id, project: undefined, collaborators: [], watchers: [], dependencies: [] });
+  const recurrence = clean.recurrence || {};
+  const occurrences = [task];
+  if (recurrence.frequency && recurrence.frequency !== 'none' && Number(recurrence.count) > 1) {
+    const copies = [];
+    for (let i = 1; i < Math.min(Number(recurrence.count), 50); i++) {
+      const deadline = clean.deadline ? shiftDate(clean.deadline, recurrence.frequency, Number(recurrence.interval || 1), i) : undefined;
+      if (recurrence.endDate && deadline && deadline > new Date(recurrence.endDate)) break;
+      copies.push({ ...task.toObject(), _id: undefined, recurrenceParent: task._id, occurrenceDate: deadline, deadline,
+        startDate: clean.startDate ? shiftDate(clean.startDate, recurrence.frequency, Number(recurrence.interval || 1), i) : undefined,
+        reminderAt: clean.reminderAt ? shiftDate(clean.reminderAt, recurrence.frequency, Number(recurrence.interval || 1), i) : undefined });
+    }
+    if (copies.length) occurrences.push(...await Task.insertMany(copies));
+  }
+  await notify(req.user._id, 'Personal task created', task.title, 'personal-task', 'Task', task._id);
+  await logActivity(req.user._id, 'CREATE_PERSONAL_TASK', 'Task', task._id, { occurrences: occurrences.length });
+  emitToUser(String(req.user._id), 'task:changed', task);
+  res.status(201).json({ item: await task.populate('owner assignee reporter'), occurrences: occurrences.length });
+} catch (e) { next(e); } };
+
+exports.updatePersonalTask = async (req, res, next) => { try {
+  const before = await Task.findOne({ _id: req.params.id, scope: 'personal', owner: req.user._id });
+  if (!before) return res.status(404).json({ message: 'Personal task not found.' });
+  const dateError = personalTaskDateError(req.body, before);
+  if (dateError) return res.status(400).json({ message: dateError });
+  const allowed = ['title', 'description', 'priority', 'status', 'startDate', 'deadline', 'reminderAt', 'tags', 'category', 'subtasks', 'progress'];
+  const changes = Object.fromEntries(Object.entries(req.body).filter(([key]) => allowed.includes(key)));
+  if (changes.status === 'completed') changes.completedAt = new Date();
+  else if (changes.status) changes.completedAt = null;
+  if (changes.reminderAt !== undefined || changes.deadline !== undefined) {
+    changes.reminderNotifiedAt = null; changes.dueSoonNotifiedAt = null; changes.overdueNotifiedAt = null;
+  }
+  const task = await Task.findByIdAndUpdate(before._id, { $set: changes }, { new: true, runValidators: true }).populate('owner assignee reporter');
+  await notify(req.user._id, changes.status === 'completed' ? 'Personal task completed' : 'Personal task updated', task.title, 'personal-task', 'Task', task._id);
+  await logActivity(req.user._id, 'UPDATE_PERSONAL_TASK', 'Task', task._id, changes);
+  emitToUser(String(req.user._id), 'task:changed', task);
+  res.json({ item: task });
+} catch (e) { next(e); } };
+
+exports.reopenPersonalTask = async (req, res, next) => { req.body = { ...req.body, status: 'todo' }; return exports.updatePersonalTask(req, res, next); };
+exports.archivePersonalTask = async (req, res, next) => { try {
+  const task = await Task.findOneAndUpdate({ _id: req.params.id, scope: 'personal', owner: req.user._id }, { isArchived: req.body.archived !== false }, { new: true });
+  if (!task) return res.status(404).json({ message: 'Personal task not found.' });
+  emitToUser(String(req.user._id), 'task:changed', task); res.json({ item: task });
+} catch (e) { next(e); } };
+exports.deletePersonalTask = async (req, res, next) => { try {
+  const task = await Task.findOneAndDelete({ _id: req.params.id, scope: 'personal', owner: req.user._id });
+  if (!task) return res.status(404).json({ message: 'Personal task not found.' });
+  emitToUser(String(req.user._id), 'task:deleted', { id: task._id }); res.json({ message: 'Personal task deleted.' });
+} catch (e) { next(e); } };
+exports.getTask = async (req, res, next) => { try { const item = await Task.findOne({ _id: req.params.id, ...await visibleTaskQuery(req.user) }).populate('project team owner assignee reporter collaborators watchers dependencies'); if (!item) return res.status(404).json({ message: 'Task not found.' }); res.json({ item }); } catch (e) { next(e); } };
 
 const validateDependencies = async (taskId, projectId, dependencies = []) => {
   const ids = [...new Set(dependencies.map(String))];
@@ -200,6 +409,7 @@ exports.createTask = async (req, res, next) => { try {
 
 exports.updateTask = async (req, res, next) => { try {
   const before = await Task.findOne({ _id: req.params.id, ...await visibleTaskQuery(req.user) }); if (!before) return res.status(404).json({ message: 'Task not found.' });
+  if (before.scope === 'personal') return exports.updatePersonalTask(req, res, next);
   const project = await Project.findById(before.project).select('manager members');
   const canFullyManage = canManageTask(req.user, before, project);
   if (before.type === 'individual-activity' && !canFullyManage) return res.status(403).json({ message: 'Use your individual assignment to update this activity.' });
@@ -225,11 +435,12 @@ exports.updateTask = async (req, res, next) => { try {
   { const recipients = collectTaskRecipients(item, { exclude: req.user._id }); const title = Object.hasOwn(changes, 'isArchived') ? (item.isArchived ? 'Task archived' : 'Task restored') : before.status !== item.status ? 'Task status updated' : 'Task updated'; const message = before.status !== item.status ? `${item.title}: ${item.status}` : item.title; await notifyRecipients(recipients, title, message, before.status !== item.status ? 'status' : 'task', 'Task', item._id); }
   emitAll('task:changed', item); res.json({ item });
 } catch (e) { next(e); } };
-exports.deleteTask = async (req, res, next) => { try { const item = await Task.findById(req.params.id); if (!item) return res.status(404).json({ message: 'Task not found.' }); if (!canDeleteTask(req.user, item)) return res.status(403).json({ message: 'Only the creator or an administrator can delete this task.' }); await item.deleteOne(); await notifyRecipients(collectTaskRecipients(item, { exclude: req.user._id }), 'Task deleted', item.title, 'task', 'Task', item._id); if (item.type === 'individual-activity') await ActivityAssignment.deleteMany({ activity: item._id }); await logActivity(req.user._id, 'DELETE_TASK', 'Task', req.params.id); emitAll('task:deleted', { id: req.params.id }); res.json({ message: 'Task deleted.', item }); } catch (e) { next(e); } };
+exports.deleteTask = async (req, res, next) => { try { const item = await Task.findById(req.params.id); if (!item) return res.status(404).json({ message: 'Task not found.' }); if (item.scope === 'personal') return res.status(403).json({ message: 'Use the personal task endpoint to delete a personal task.' }); if (!canDeleteTask(req.user, item)) return res.status(403).json({ message: 'Only the creator or an administrator can delete this task.' }); await item.deleteOne(); await notifyRecipients(collectTaskRecipients(item, { exclude: req.user._id }), 'Task deleted', item.title, 'task', 'Task', item._id); if (item.type === 'individual-activity') await ActivityAssignment.deleteMany({ activity: item._id }); await logActivity(req.user._id, 'DELETE_TASK', 'Task', req.params.id); emitAll('task:deleted', { id: req.params.id }); res.json({ message: 'Task deleted.', item }); } catch (e) { next(e); } };
 exports.addAttachment = async (req, res, next) => { try {
   if (!req.file) return res.status(400).json({ message: 'Choose a file to upload.' });
   const task = await Task.findOne({ _id: req.params.id, ...await visibleTaskQuery(req.user) });
   if (!task) return res.status(404).json({ message: 'Task not found.' });
+  if (task.scope === 'personal' && String(task.owner) !== String(req.user._id)) { fs.unlink(req.file.path, () => {}); return res.status(403).json({ message: 'Only the owner can manage personal task files.' }); }
   const project = await Project.findById(task.project).select('manager');
   const canMutateAttachment = task.type === 'individual-activity'
     ? canManageTask(req.user, task, project)
@@ -245,6 +456,7 @@ exports.addAttachment = async (req, res, next) => { try {
 exports.deleteAttachment = async (req, res, next) => { try {
   const task = await Task.findOne({ _id: req.params.id, ...await visibleTaskQuery(req.user) });
   if (!task) return res.status(404).json({ message: 'Task not found.' });
+  if (task.scope === 'personal' && String(task.owner) !== String(req.user._id)) return res.status(403).json({ message: 'Only the owner can manage personal task files.' });
   const project = await Project.findById(task.project).select('manager');
   const canMutateAttachment = task.type === 'individual-activity'
     ? canManageTask(req.user, task, project)
@@ -260,7 +472,7 @@ exports.deleteAttachment = async (req, res, next) => { try {
   emitAll('task:changed', task); res.json({ message: 'Attachment deleted.' });
 } catch (e) { next(e); } };
 exports.listComments = async (req, res, next) => { try { const task = await Task.findOne({ _id: req.params.taskId, ...await visibleTaskQuery(req.user) }); if (!task) return res.status(404).json({ message: 'Task not found.' }); res.json({ items: await Comment.find({ task: task._id }).populate('author').sort('createdAt') }); } catch (e) { next(e); } };
-exports.createComment = async (req, res, next) => { try { const task = await Task.findOne({ _id: req.params.taskId, ...await visibleTaskQuery(req.user) }); if (!task) return res.status(404).json({ message: 'Task not found.' }); const item = await Comment.create({ task: task._id, author: req.user._id, body: req.body.body }); await notifyRecipients(collectTaskRecipients(task, { exclude: req.user._id }), 'New task comment', task.title, 'comment', 'Task', task._id); await logActivity(req.user._id, 'COMMENT_TASK', 'Task', task._id); emitAll('comment:new', item); res.status(201).json({ item }); } catch (e) { next(e); } };
+exports.createComment = async (req, res, next) => { try { const task = await Task.findOne({ _id: req.params.taskId, ...await visibleTaskQuery(req.user) }); if (!task) return res.status(404).json({ message: 'Task not found.' }); const item = await Comment.create({ task: task._id, author: req.user._id, body: req.body.body }); await notifyRecipients(collectTaskRecipients(task, { exclude: req.user._id }), 'New task comment', task.title, 'comment', 'Task', task._id); await logActivity(req.user._id, 'COMMENT_TASK', 'Task', task._id); if (task.scope === 'personal') emitToUser(String(req.user._id), 'comment:new', item); else emitAll('comment:new', item); res.status(201).json({ item }); } catch (e) { next(e); } };
 exports.updateComment = async (req, res, next) => { try { const item = await Comment.findOneAndUpdate({ _id: req.params.id, author: req.user._id }, { body: req.body.body }, { new: true, runValidators: true }); if (!item) return res.status(404).json({ message: 'Comment not found.' }); res.json({ item }); } catch (e) { next(e); } };
 exports.deleteComment = async (req, res, next) => { try { const query = req.user.role === 'admin' ? { _id: req.params.id } : { _id: req.params.id, author: req.user._id }; const item = await Comment.findOneAndDelete(query); if (!item) return res.status(404).json({ message: 'Comment not found.' }); res.json({ message: 'Comment deleted.' }); } catch (e) { next(e); } };
 exports.notifications = async (req, res, next) => { try { res.json({ items: await Notification.find({ user: req.user._id }).sort('-createdAt') }); } catch (e) { next(e); } };
