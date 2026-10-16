@@ -19,11 +19,13 @@ export const PROJECT_TASK_STATUSES = ['Todo', 'In Progress', 'For Review', 'Comp
 export function getEligibleProjectPeople(project, users = []) {
   if (!project) return []
   const allowedIds = new Set([project.managerId, ...(project.memberIds || [])].filter(Boolean))
-  return users.filter((person) => allowedIds.has(entityId(person)))
+  return users.filter((person) => person.role !== 'admin' && allowedIds.has(entityId(person)))
 }
 
 export function normalizeProjectFromApi(project) {
-  const members = Array.isArray(project.members) ? project.members : []
+  const managerId = entityId(project.manager)
+  const members = (Array.isArray(project.members) ? project.members : [])
+    .filter((member) => member.role !== 'admin' && entityId(member) !== managerId)
 
   return {
     id: project._id || project.id || '',
@@ -31,7 +33,7 @@ export function normalizeProjectFromApi(project) {
     description: project.description || '',
     status: project.status || 'planning',
     priority: project.priority || 'medium',
-    managerId: entityId(project.manager),
+    managerId,
     managerName: personName(project.manager, 'No manager'),
     memberIds: members.map(entityId).filter(Boolean),
     members: members.map((member) => ({

@@ -90,8 +90,12 @@ export function TaskProgressModal({ values, isSaving, taskMessage, onClose, onSa
   )
 }
 
-export function TaskPeoplePicker({ label, name, people, selectedIds, onChange, placeholder, emptyMessage = 'No people available.' }) {
-  const selectedPeople = people.filter((person) => selectedIds.includes(getUserId(person)))
+export function TaskPeoplePicker({ label, name, people, selectedIds, onChange, placeholder, emptyMessage = 'No people available.', excludedIds = [] }) {
+  const excluded = new Set(excludedIds.map(String))
+  const selectablePeople = people.filter((person) => person.role !== 'admin' && !excluded.has(String(getUserId(person))))
+  const selectableIds = new Set(selectablePeople.map((person) => String(getUserId(person))))
+  const selectedPeople = selectablePeople.filter((person) => selectedIds.includes(getUserId(person)))
+  const submittedIds = selectedIds.filter((id) => selectableIds.has(String(id)))
 
   function togglePerson(personId) {
     onChange(selectedIds.includes(personId)
@@ -102,7 +106,7 @@ export function TaskPeoplePicker({ label, name, people, selectedIds, onChange, p
   return (
     <div className="task-people-field">
       <span className="task-field-label">{label}</span>
-      {selectedIds.map((id) => <input key={id} type="hidden" name={name} value={id} />)}
+      {submittedIds.map((id) => <input key={id} type="hidden" name={name} value={id} />)}
       <details className="task-people-picker">
         <summary>
           <span className="task-field-icon people" aria-hidden="true" />
@@ -110,7 +114,7 @@ export function TaskPeoplePicker({ label, name, people, selectedIds, onChange, p
           <span className="task-picker-chevron" aria-hidden="true">⌄</span>
         </summary>
         <div className="task-people-menu">
-          {people.length ? people.map((person) => {
+          {selectablePeople.length ? selectablePeople.map((person) => {
             const personId = getUserId(person)
             const selected = selectedIds.includes(personId)
             return (
@@ -359,9 +363,14 @@ export function WorkspaceFormModal({ id, eyebrow, title, description, className 
 export function ProjectModal({ formState, users, currentUser, taskMessage, onClose, onSubmit }) {
   const values = formState.values
   const isEditing = formState.mode === 'edit'
-  const [memberIds, setMemberIds] = useState(values.memberIds || [])
-  const managerOptions = (currentUser?.role === 'admin' ? [currentUser, ...users] : [currentUser])
+  const managerOptions = [...(currentUser?.role === 'manager' ? [currentUser] : []), ...users.filter((person) => person.role === 'manager')]
     .filter((person, index, people) => person && people.findIndex((candidate) => getUserId(candidate) === getUserId(person)) === index)
+  const initialManagerId = managerOptions.some((person) => getUserId(person) === values.managerId)
+    ? values.managerId
+    : getUserId(managerOptions[0])
+  const [memberIds, setMemberIds] = useState(() => (values.memberIds || []).filter((id) => id !== initialManagerId))
+  const [managerId, setManagerId] = useState(initialManagerId)
+  const memberCandidates = users.filter((person) => person.role !== 'admin' && getUserId(person) !== managerId)
 
   return (
     <WorkspaceFormModal
@@ -387,8 +396,8 @@ export function ProjectModal({ formState, users, currentUser, taskMessage, onClo
             <label><span className="task-field-label">Status</span><select name="status" defaultValue={values.status}>{PROJECT_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}</select></label>
             <label><span className="task-field-label">Priority</span><select name="priority" defaultValue={values.priority}>{PROJECT_PRIORITIES.map((priority) => <option key={priority} value={priority}>{priority}</option>)}</select></label>
           </div>
-          <label><span className="task-field-label">Manager</span><select name="managerId" defaultValue={values.managerId || getUserId(currentUser)}>{managerOptions.map((person) => <option key={getUserId(person)} value={getUserId(person)}>{getCommentAuthor(person)}</option>)}</select></label>
-          <TaskPeoplePicker label="Members" name="memberIds" people={users} selectedIds={memberIds} onChange={setMemberIds} placeholder="Add project members" emptyMessage="No users are available." />
+          <label><span className="task-field-label">Manager</span><select name="managerId" value={managerId || ''} required onChange={(event) => { setManagerId(event.target.value); setMemberIds((ids) => ids.filter((id) => id !== event.target.value)) }}><option value="" disabled>Select a manager</option>{managerOptions.map((person) => <option key={getUserId(person)} value={getUserId(person)}>{getCommentAuthor(person)}</option>)}</select></label>
+          <TaskPeoplePicker label="Members" name="memberIds" people={memberCandidates} selectedIds={memberIds} onChange={setMemberIds} placeholder="Add project members" emptyMessage="No eligible members are available." />
         </aside>
       </div>
     </WorkspaceFormModal>
@@ -398,9 +407,14 @@ export function ProjectModal({ formState, users, currentUser, taskMessage, onClo
 export function TeamModal({ formState, users, currentUser, taskMessage, onClose, onSubmit }) {
   const values = formState.values
   const isEditing = formState.mode === 'edit'
-  const [memberIds, setMemberIds] = useState(values.memberIds || [])
-  const managerOptions = (currentUser?.role === 'admin' ? [currentUser, ...users] : [currentUser])
+  const managerOptions = [...(currentUser?.role === 'manager' ? [currentUser] : []), ...users.filter((person) => person.role === 'manager')]
     .filter((person, index, people) => person && people.findIndex((candidate) => getUserId(candidate) === getUserId(person)) === index)
+  const initialManagerId = managerOptions.some((person) => getUserId(person) === values.managerId)
+    ? values.managerId
+    : getUserId(managerOptions[0])
+  const [memberIds, setMemberIds] = useState(() => (values.memberIds || []).filter((id) => id !== initialManagerId))
+  const [managerId, setManagerId] = useState(initialManagerId)
+  const memberCandidates = users.filter((person) => person.role !== 'admin' && getUserId(person) !== managerId)
 
   return (
     <WorkspaceFormModal
@@ -422,8 +436,8 @@ export function TeamModal({ formState, users, currentUser, taskMessage, onClose,
         </section>
         <aside className="workspace-modal-side">
           <p className="task-section-label">Ownership</p>
-          <label><span className="task-field-label">Manager</span><select name="managerId" defaultValue={values.managerId || getUserId(currentUser)}>{managerOptions.map((person) => <option key={getUserId(person)} value={getUserId(person)}>{getCommentAuthor(person)}</option>)}</select></label>
-          <TaskPeoplePicker label="Members" name="memberIds" people={users} selectedIds={memberIds} onChange={setMemberIds} placeholder="Add team members" emptyMessage="No users are available." />
+          <label><span className="task-field-label">Manager</span><select name="managerId" value={managerId || ''} required onChange={(event) => { setManagerId(event.target.value); setMemberIds((ids) => ids.filter((id) => id !== event.target.value)) }}><option value="" disabled>Select a manager</option>{managerOptions.map((person) => <option key={getUserId(person)} value={getUserId(person)}>{getCommentAuthor(person)}</option>)}</select></label>
+          <TaskPeoplePicker label="Members" name="memberIds" people={memberCandidates} selectedIds={memberIds} onChange={setMemberIds} placeholder="Add team members" emptyMessage="No eligible members are available." />
         </aside>
       </div>
     </WorkspaceFormModal>

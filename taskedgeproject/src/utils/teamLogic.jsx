@@ -13,14 +13,16 @@ function personName(value, fallback = 'Team member') {
 }
 
 export function normalizeTeamFromApi(team) {
-  const members = Array.isArray(team.members) ? team.members : []
+  const managerId = entityId(team.manager)
+  const members = (Array.isArray(team.members) ? team.members : [])
+    .filter((member) => member.role !== 'admin' && entityId(member) !== managerId)
 
   return {
     id: team._id || team.id || '',
     name: team.name || 'Team',
     description: team.description || '',
     isArchived: team.isArchived === true,
-    managerId: entityId(team.manager),
+    managerId,
     managerName: personName(team.manager, 'No manager'),
     memberIds: members.map(entityId).filter(Boolean),
     members: members.map((member) => ({

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Archive, ArrowLeft, Folder, LayoutGrid, List, Pencil, Plus, Search, SlidersHorizontal } from 'lucide-react'
+import { Archive, ArrowLeft, ArrowUpRight, Folder, LayoutGrid, List, Pencil, Plus, Search, SlidersHorizontal, UsersRound } from 'lucide-react'
 import { getFilteredProjectTasks, getProjectProgress, getProjectStatusBuckets } from '../utils/projectLogic.jsx'
 import { PRIORITIES, STATUSES } from '../utils/taskLogic.jsx'
 import { canManageOwnedRecord } from '../utils/taskPermissions.jsx'
@@ -88,31 +88,66 @@ export function ProjectCard({
   onEditProject,
   onArchiveProject,
 }) {
+  const teamSize = new Set([
+    project.managerId,
+    ...(project.memberIds || []),
+  ].filter(Boolean)).size
+
   return (
     <article className="project-card">
       <button type="button" className="project-open-button" onClick={() => onOpenProject(project)}>
-        <p className="task-path">Manager &gt; {project.managerName}</p>
-        <h3>{project.name}</h3>
-        <p>{project.description || 'No description yet.'}</p>
-      </button>
-      <div className="project-progress">
-        <span style={{ width: `${progress.percent}%` }} />
-      </div>
-      <div className="project-meta-row">
-        <strong>{progress.completed} of {progress.total} tasks completed</strong>
-        <span>{project.status}</span>
-        <span>{project.priority}</span>
-      </div>
-      {canManage && (
-        <div className="row-actions">
-          <button type="button" onClick={() => onEditProject(project)}>
-            Edit
-          </button>
-          <button type="button" onClick={() => onArchiveProject(project.id)}>
-            Archive
-          </button>
+        <header className="project-card-header">
+          <span className="project-card-icon" aria-hidden="true"><Folder size={20} /></span>
+          <span className="project-card-kicker">{project.status} project</span>
+          <span className="project-card-open-copy">Open <ArrowUpRight size={15} aria-hidden="true" /></span>
+        </header>
+
+        <div className="project-card-copy">
+          <h3>{project.name}</h3>
+          <p className="project-card-description">{project.description || 'No description yet.'}</p>
         </div>
-      )}
+
+        <div className="project-card-badges">
+          <StatusBadge value={project.status} />
+          <PriorityBadge value={project.priority} />
+        </div>
+
+        <div className="project-card-progress-copy">
+          <span>Overall progress</span>
+          <strong>{progress.percent}%</strong>
+        </div>
+        <div className="project-progress" aria-label={`${progress.percent}% complete`}>
+          <span style={{ width: `${progress.percent}%` }} />
+        </div>
+        <p className="project-card-task-count">
+          {progress.completed} of {progress.total} {progress.total === 1 ? 'task' : 'tasks'} completed
+        </p>
+      </button>
+
+      <footer className="project-card-footer">
+        <div className="project-card-manager">
+          <span className="project-manager-avatar" aria-hidden="true">
+            {(project.managerName || 'M').trim().charAt(0).toUpperCase()}
+          </span>
+          <span>
+            <small>Manager</small>
+            <strong>{project.managerName}</strong>
+          </span>
+        </div>
+        <span className="project-card-team"><UsersRound size={15} aria-hidden="true" />{teamSize} {teamSize === 1 ? 'member' : 'members'}</span>
+        {canManage && (
+          <div className="project-card-actions">
+            <button type="button" aria-label={`Edit ${project.name}`} onClick={() => onEditProject(project)}>
+              <Pencil size={15} aria-hidden="true" />
+              Edit
+            </button>
+            <button type="button" aria-label={`Archive ${project.name}`} onClick={() => onArchiveProject(project.id)}>
+              <Archive size={15} aria-hidden="true" />
+              Archive
+            </button>
+          </div>
+        )}
+      </footer>
     </article>
   )
 }

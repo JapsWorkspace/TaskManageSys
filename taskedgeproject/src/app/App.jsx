@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { Check, LockKeyhole, ShieldCheck, UserRound, Zap } from 'lucide-react'
 import '../styles/App.css'
-import loginBg from '../assets/Loginbg.png'
-import loginBgTwo from '../assets/Loginbg2.png'
-import loginBgThree from '../assets/Loginbg3.png'
 import {
   clearStoredAuth,
   createAuthHeaders,
@@ -100,18 +98,6 @@ const baseWorkspaceTabs = [
   { id: 'archive', label: 'Archive', count: '' },
 ]
 
-const authSlides = [
-  {
-    image: loginBg,
-  },
-  {
-    image: loginBgTwo,
-  },
-  {
-    image: loginBgThree,
-  },
-]
-
 async function sendAuthRequest(path, body, token = '') {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: 'POST',
@@ -190,7 +176,6 @@ function App() {
   const [resetPassword, setResetPassword] = useState('')
   const [isSubmittingAuth, setIsSubmittingAuth] = useState(false)
   const [authTransition, setAuthTransition] = useState('')
-  const [activeAuthSlide, setActiveAuthSlide] = useState(0)
   const [activeView, setActiveView] = useState(initialRoute.activeView)
   const [activeNav, setActiveNav] = useState(initialRoute.activeNav)
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
@@ -443,18 +428,6 @@ function App() {
       setIsLoadingTasks(false)
     }
   }, [canManageUsers, canOpenArchive, taskApi])
-
-  useEffect(() => {
-    if (user) {
-      return undefined
-    }
-
-    const slideTimer = window.setInterval(() => {
-      setActiveAuthSlide((currentSlide) => (currentSlide + 1) % authSlides.length)
-    }, 4200)
-
-    return () => window.clearInterval(slideTimer)
-  }, [user])
 
   useEffect(() => {
     if (!user || !auth.token) {
@@ -1933,35 +1906,27 @@ function App() {
     return (
       <main className="auth-page">
         <section className="auth-panel" aria-label="TaskEdge authentication">
-          <div className="auth-intro">
-            <div className="auth-slides" aria-live="polite">
-              {authSlides.map((slide, index) => (
-                <img
-                  key={slide.image}
-                  className={index === activeAuthSlide ? 'active' : ''}
-                  src={slide.image}
-                  alt=""
-                />
-              ))}
+          <aside className="auth-brand-panel">
+            <div className="auth-brand-mark">
+              <span aria-hidden="true"><Zap size={20} /></span>
+              <strong>TaskEdge</strong>
             </div>
-            <div className="auth-intro-top">
-              <p className="eyebrow">Task Management System</p>
+
+            <div className="auth-brand-content">
+              <h1>Your work,<br />all in one place.</h1>
+              <p>Plan projects, assign responsibilities, and keep every deadline visible to your team.</p>
+              <ul className="auth-brand-benefits">
+                <li><Check size={16} /> One clear view of active work</li>
+                <li><Check size={16} /> Roles and permissions built in</li>
+                <li><Check size={16} /> Deadlines that stay in focus</li>
+              </ul>
             </div>
-            <div className="auth-intro-bottom">
-              <h1>TaskEdge keeps project work visible and moving.</h1>
-              <div className="auth-slide-bars" aria-label="Authentication image carousel">
-                {authSlides.map((slide, index) => (
-                  <button
-                    key={slide.image}
-                    type="button"
-                    className={index === activeAuthSlide ? 'active' : ''}
-                    aria-label={`Show slide ${index + 1}`}
-                    onClick={() => setActiveAuthSlide(index)}
-                  />
-                ))}
-              </div>
+
+            <div className="auth-brand-footer">
+              <span><i /> Systems online</span>
+              <small>Task management workspace</small>
             </div>
-          </div>
+          </aside>
 
           <div className={`auth-card ${
             authMode === 'register'
@@ -1970,13 +1935,46 @@ function App() {
                 ? 'forgot-page'
                 : 'login-page'
           }`}>
+            <div className="auth-card-topbar">
+              <span className="auth-mobile-brand"><Zap size={16} /> TaskEdge</span>
+              <p className="auth-mode-prompt">
+                {authMode === 'register'
+                  ? 'Already have an account?'
+                  : authMode === 'forgot'
+                    ? 'Remembered your password?'
+                    : 'New here?'}
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetAuthForms(
+                      authMode === 'register'
+                        ? 'login'
+                        : authMode === 'forgot'
+                          ? 'login'
+                          : 'register',
+                    )
+                  }}
+                >
+                  {authMode === 'register' ? 'Go to login' : authMode === 'forgot' ? 'Back to login' : 'Create an account'}
+                </button>
+              </p>
+            </div>
+
             <div className="auth-card-title">
+              <span>{authMode === 'login' ? 'Welcome back' : authMode === 'register' ? 'Get started' : 'Account recovery'}</span>
+              <h2>
+                {authMode === 'register'
+                  ? 'Create your account'
+                  : authMode === 'forgot'
+                    ? 'Reset your password'
+                    : 'Sign in to your account'}
+              </h2>
               <p>
                 {authMode === 'register'
-                  ? 'Create an account'
+                  ? 'Add your details to create a TaskEdge workspace account.'
                   : authMode === 'forgot'
-                    ? 'Reset password'
-                    : 'Login'}
+                    ? 'Request a reset code, then choose a new password.'
+                    : 'Enter your details below to access your workspace.'}
               </p>
             </div>
 
@@ -1984,32 +1982,40 @@ function App() {
               <form key="login" className="form-grid auth-form-page turn-back" onSubmit={handleLogin}>
                 <label>
                   Username or email
-                  <input
-                    name="usernameOrEmail"
-                    autoComplete="username"
-                    placeholder="Enter username or email"
-                    required
-                  />
+                  <span className="auth-input-shell">
+                    <UserRound size={18} aria-hidden="true" />
+                    <input
+                      name="usernameOrEmail"
+                      autoComplete="username"
+                      placeholder="Enter username or email"
+                      required
+                    />
+                  </span>
                 </label>
                 <label>
-                  Password
-                  <input
-                    name="password"
-                    type="password"
-                    autoComplete="current-password"
-                    placeholder="Enter your password"
-                    required
-                  />
+                  <span className="auth-label-row">
+                    <span>Password</span>
+                    <button
+                      type="button"
+                      className="text-button auth-forgot-button"
+                      onClick={() => resetAuthForms('forgot')}
+                    >
+                      Forgot password?
+                    </button>
+                  </span>
+                  <span className="auth-input-shell">
+                    <LockKeyhole size={18} aria-hidden="true" />
+                    <input
+                      name="password"
+                      type="password"
+                      autoComplete="current-password"
+                      placeholder="Enter your password"
+                      required
+                    />
+                  </span>
                 </label>
                 <button className="primary-button" type="submit" disabled={isSubmittingAuth}>
-                  {isSubmittingAuth ? 'Checking...' : 'Login'}
-                </button>
-                <button
-                  type="button"
-                  className="text-button auth-forgot-button"
-                  onClick={() => resetAuthForms('forgot')}
-                >
-                  Forgot password?
+                  {isSubmittingAuth ? 'Checking...' : 'Sign in'}
                 </button>
               </form>
             ) : authMode === 'forgot' ? (
@@ -2212,27 +2218,10 @@ function App() {
 
             {authMessage && <p className="form-message">{authMessage}</p>}
 
-            <p className="auth-mode-prompt">
-              {authMode === 'register'
-                ? 'Already have an account?'
-                : authMode === 'forgot'
-                  ? 'Remembered your password?'
-                  : 'Not registered yet?'}
-              <button
-                type="button"
-                onClick={() => {
-                  resetAuthForms(
-                    authMode === 'register'
-                      ? 'login'
-                      : authMode === 'forgot'
-                        ? 'login'
-                        : 'register',
-                  )
-                }}
-              >
-                {authMode === 'register' ? 'Go to login' : authMode === 'forgot' ? 'Back to login' : 'Create an account'}
-              </button>
-            </p>
+            <div className="auth-security-note">
+              <ShieldCheck size={16} aria-hidden="true" />
+              <span>Your account data is protected by secure sessions.</span>
+            </div>
           </div>
         </section>
       </main>
